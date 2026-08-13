@@ -11,6 +11,9 @@ def to_address(addr):
         return addr
     return Address(addr)
 
+# ZERO Address constant for address validation
+ZERO_ADDRESS = Address("0x0000000000000000000000000000000000000000")
+
 # ---------------------------------------------------------------------------
 # Authoritative Flight Tracking Sources (Third-party, NOT airline-controlled)
 # ---------------------------------------------------------------------------
@@ -42,6 +45,7 @@ EU261_TIER_MEDIUM       = 400   # 1,500–3,500 km  →  €400
 EU261_TIER_LONG         = 600   # > 3,500 km  →  €600
 EU261_MIN_DELAY_HOURS   = 3     # Minimum qualifying delay to trigger compensation
 EU261_DELAY_TOLERANCE   = 1     # Validator/Leader delay_hours tolerance (±1 hour)
+MAX_EARTH_DISTANCE_KM   = 20000 # Maximum realistic global flight distance (half earth circumference)
 
 
 def _eu261_compensation_units(distance_km: int) -> int:
@@ -70,7 +74,10 @@ class Contract(gl.Contract):
     Key Safeguards:
     - Tracking evidence bound to authoritative third-party domains (not airline-controlled).
     - Departure date binding + AI freshness rule: only data for the registered flight date counts.
-    - Full collateral guard: deposit must be >= full EU261 compensation for the flight distance.
+    - Zero-address & self-escrow protection: passenger cannot be 0x0 or insurer self-address.
+    - Realistic distance bounds: 1km <= distance_km <= 20,000km.
+    - Clean flight number hygiene: alphanumeric IATA/ICAO code, max 10 chars.
+    - Full collateral guard: deposit must be >= full EU261 compensation for flight distance.
     - Compensation amount computed by contract EU261 math from flight_distance_km — NOT from AI.
     - Validator semantic content check: delay_hours must agree within ±1 hour tolerance.
     - Anti-double-claim: one claim per (flight_number + departure_date + passenger) tuple.
@@ -111,9 +118,23 @@ class Contract(gl.Contract):
         if gl.message.value <= 0:
             raise UserError("Compensation fund deposit must be greater than zero.")
 
+        # SAFEGUARD A: Zero-address and Self-Escrow Protection
+        passenger_addr = to_address(passenger)
+        insurer_addr   = to_address(gl.message.sender_address)
+
+        if str(passenger_addr) == str(ZERO_ADDRESS):
+            raise UserError("Passenger address cannot be the zero address (0x0000...0000).")
+
+        if str(passenger_addr) == str(insurer_addr):
+            raise UserError("Insurer cannot create a compensation escrow for their own wallet address.")
+
+        # SAFEGUARD B: Flight Number Hygiene (IATA/ICAO format: e.g. VN302, EK384, BA117)
         flight_number_clean = flight_number.strip().upper()
-        if len(flight_number_clean) == 0:
-            raise UserError("Flight number cannot be empty.")
+        if len(flight_number_clean) < 2 or len(flight_number_clean) > 10:
+            raise UserError("Flight number must be between 2 and 10 characters long.")
+
+        if not flight_number_clean.isalnum():
+            raise UserError("Flight number must only contain alphanumeric characters (letters and digits).")
 
         departure_date_clean = departure_date.strip()
         # Validate YYYY-MM-DD format & valid date ranges
@@ -127,10 +148,11 @@ class Contract(gl.Contract):
         except Exception:
             raise UserError("Departure date must be a valid date in YYYY-MM-DD format (e.g. 2026-08-01).")
 
-        if flight_distance_km <= 0:
-            raise UserError("Flight distance must be greater than zero kilometres.")
+        # SAFEGUARD C: Realistic Global Flight Distance Bounds
+        if flight_distance_km <= 0 or flight_distance_km > MAX_EARTH_DISTANCE_KM:
+            raise UserError(f"Flight distance must be between 1 and {MAX_EARTH_DISTANCE_KM} kilometres.")
 
-        # SAFEGUARD 1: Deposit must cover full EU261 statutory compensation for flight distance
+        # SAFEGUARD D: Collateral Guard — Deposit must cover full EU261 statutory liability
         required_units = _eu261_compensation_units(flight_distance_km)
         required_wei   = bigint(required_units) * bigint(10 ** 18)
         if bigint(gl.message.value) < required_wei:
@@ -139,12 +161,11 @@ class Contract(gl.Contract):
                 f"requires at least {required_units} GEN deposit to cover full EU261 statutory liability."
             )
 
-        # SAFEGUARD 2: Claim deadline must be a valid future Unix timestamp (after year 2025)
+        # SAFEGUARD E: Claim deadline must be a valid future Unix timestamp (after year 2025)
         if claim_deadline_ts < 1735689600:  # 2025-01-01 00:00:00 UTC
             raise UserError("Claim deadline must be a valid future Unix timestamp.")
 
         # Anti-double-claim: one vault per (flight + date + passenger)
-        passenger_addr = to_address(passenger)
         anti_dup_key = f"{flight_number_clean}_{departure_date_clean}_{str(passenger_addr)}"
         if self.used_claims.get(anti_dup_key, False):
             raise UserError(
@@ -157,7 +178,7 @@ class Contract(gl.Contract):
         cid_str    = str(current_id)
 
         self.claim_passenger[cid_str]           = passenger_addr
-        self.claim_insurer[cid_str]             = to_address(gl.message.sender_address)
+        self.claim_insurer[cid_str]             = insurer_addr
         self.claim_fund[cid_str]                = bigint(gl.message.value)
         self.claim_status[cid_str]              = "FUNDED"
         self.claim_flight_number[cid_str]       = flight_number_clean
@@ -191,7 +212,8 @@ class Contract(gl.Contract):
         if status not in ("FUNDED", "FAILED"):
             raise UserError("Claim is not in an eligible state for delay filing.")
 
-        url_lower = tracking_evidence_url.lower().strip()
+        url_clean = tracking_evidence_url.strip()
+        url_lower = url_clean.lower()
         if not (url_lower.startswith("http://") or url_lower.startswith("https://")):
             raise UserError("Tracking evidence URL must start with http:// or https://")
 
@@ -203,7 +225,7 @@ class Contract(gl.Contract):
                 "Airline-hosted or self-reported URLs are not accepted."
             )
 
-        passenger_addr = to_address(self.claim_passenger.get(cid_str, Address("0x0000000000000000000000000000000000000000")))
+        passenger_addr = to_address(self.claim_passenger.get(cid_str, ZERO_ADDRESS))
         sender         = to_address(gl.message.sender_address)
         if str(sender) != str(passenger_addr):
             raise UserError("Only the registered passenger can file a delay claim.")
@@ -211,10 +233,10 @@ class Contract(gl.Contract):
         flight_number  = self.claim_flight_number.get(cid_str, "")
         departure_date = self.claim_departure_date.get(cid_str, "")
         distance_km    = int(self.claim_flight_distance_km.get(cid_str, bigint(0)))
-        insurer_addr   = to_address(self.claim_insurer.get(cid_str, Address("0x0000000000000000000000000000000000000000")))
+        insurer_addr   = to_address(self.claim_insurer.get(cid_str, ZERO_ADDRESS))
         deposit_amount = self.claim_fund.get(cid_str, bigint(0))
 
-        self.claim_tracking_url[cid_str] = tracking_evidence_url.strip()
+        self.claim_tracking_url[cid_str] = url_clean
         self.claim_reasoning[cid_str]    = "AI Flight Delay Validators are independently scraping tracking data..."
 
         # -----------------------------------------------------------------------
@@ -222,13 +244,13 @@ class Contract(gl.Contract):
         # -----------------------------------------------------------------------
         def leader_fn() -> str:
             try:
-                raw = gl.nondet.web.render(tracking_evidence_url)
+                raw = gl.nondet.web.render(url_clean)
                 tracking_text = raw.decode('utf-8', errors='ignore').strip() if isinstance(raw, bytes) else str(raw).strip()
             except Exception as e:
                 return json.dumps({
                     "error": f"TRACKING_FETCH_FAILED: {str(e)}",
                     "is_delayed": False, "delay_hours": 0,
-                    "reasoning": f"Could not scrape flight tracking data from {tracking_evidence_url}."
+                    "reasoning": f"Could not scrape flight tracking data from {url_clean}."
                 })
 
             if len(tracking_text) < 15:
@@ -314,7 +336,7 @@ Respond ONLY with valid raw JSON. No markdown, no code blocks:
                 return json.dumps({
                     "is_delayed": is_delayed,
                     "delay_hours": delay_hours,
-                    "reasoning": reasoning[:1000]
+                    "reasoning": reasoning[:500]
                 })
             except Exception as e:
                 return json.dumps({
@@ -346,7 +368,7 @@ Respond ONLY with valid raw JSON. No markdown, no code blocks:
 
             # Validator independently re-scrapes the same authoritative source
             try:
-                raw = gl.nondet.web.render(tracking_evidence_url)
+                raw = gl.nondet.web.render(url_clean)
                 tracking_text = raw.decode('utf-8', errors='ignore').strip() if isinstance(raw, bytes) else str(raw).strip()
             except Exception:
                 return False
@@ -456,7 +478,7 @@ Respond ONLY with valid raw JSON:
             is_delayed = False
 
         self.claim_delay_hours[cid_str] = bigint(delay_hours)
-        self.claim_reasoning[cid_str]   = reasoning
+        self.claim_reasoning[cid_str]   = reasoning[:500]
 
         if is_delayed:
             # CONTRACT-LEVEL EU261 MATH — compensation derived from flight_distance_km ONLY
@@ -497,7 +519,7 @@ Respond ONLY with valid raw JSON:
         if status not in ("FUNDED", "FAILED"):
             raise UserError("Claim is not in an eligible state for deadline expiry settlement.")
 
-        insurer_addr = to_address(self.claim_insurer.get(cid_str, Address("0x0000000000000000000000000000000000000000")))
+        insurer_addr = to_address(self.claim_insurer.get(cid_str, ZERO_ADDRESS))
         sender       = to_address(gl.message.sender_address)
         if str(sender) != str(insurer_addr):
             raise UserError("Only the insurer can trigger deadline-based expiry settlement.")
@@ -510,7 +532,8 @@ Respond ONLY with valid raw JSON:
         if amount <= bigint(0):
             raise UserError("Claim vault has no funds remaining.")
 
-        url_lower = time_source_url.lower().strip()
+        url_clean = time_source_url.strip()
+        url_lower = url_clean.lower()
         if not any(url_lower.startswith(d.lower()) for d in AUTHORIZED_TIME_DOMAINS):
             raise UserError(
                 "Time source URL must originate from an authoritative time service "
@@ -519,7 +542,7 @@ Respond ONLY with valid raw JSON:
 
         def leader_fn() -> str:
             try:
-                raw = gl.nondet.web.render(time_source_url)
+                raw = gl.nondet.web.render(url_clean)
                 time_text = raw.decode('utf-8', errors='ignore').strip() if isinstance(raw, bytes) else str(raw).strip()
             except Exception as e:
                 return json.dumps({"error": f"TIME_FETCH_FAILED: {str(e)}", "deadline_passed": False})
@@ -572,7 +595,6 @@ Return ONLY raw JSON:
             except Exception as e:
                 return json.dumps({"error": f"JSON_PARSE_FAILED: {str(e)}", "deadline_passed": False})
 
-        # Validator independently re-fetches time URL & re-evaluates
         def validator_fn(leader_result: str) -> bool:
             try:
                 l_str = leader_result.decode('utf-8', errors='ignore') if isinstance(leader_result, bytes) else str(leader_result)
@@ -589,7 +611,7 @@ Return ONLY raw JSON:
 
             # Independent validator fetch
             try:
-                raw = gl.nondet.web.render(time_source_url)
+                raw = gl.nondet.web.render(url_clean)
                 time_text = raw.decode('utf-8', errors='ignore').strip() if isinstance(raw, bytes) else str(raw).strip()
             except Exception:
                 return False
@@ -673,8 +695,8 @@ Return ONLY raw JSON: {{"deadline_passed": true | false}}"""
 
         return json.dumps({
             "id":                  claim_id,
-            "passenger":           str(self.claim_passenger.get(cid_str, Address("0x0000000000000000000000000000000000000000"))),
-            "insurer":             str(self.claim_insurer.get(cid_str, Address("0x0000000000000000000000000000000000000000"))),
+            "passenger":           str(self.claim_passenger.get(cid_str, ZERO_ADDRESS)),
+            "insurer":             str(self.claim_insurer.get(cid_str, ZERO_ADDRESS)),
             "fund":                int(self.claim_fund.get(cid_str, bigint(0))),
             "status":              self.claim_status.get(cid_str, "FUNDED"),
             "flight_number":       self.claim_flight_number.get(cid_str, ""),

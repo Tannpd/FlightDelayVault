@@ -474,7 +474,48 @@ class TestFlightDelayVault(unittest.TestCase):
             self.contract.fund_compensation_claim(PASSENGER, "VN302", DEPARTURE_DATE, SHORT_DIST, 1000000000)
         self.assertIn("valid future Unix timestamp", str(ctx.exception))
 
+    # ------------------------------------------------------------------
+    # 24. Zero-address passenger rejected
+    # ------------------------------------------------------------------
+    def test_zero_address_passenger_rejected(self):
+        """Passenger address cannot be 0x0000...0000."""
+        mock_gl.message = MockMessage(sender=INSURER, value=STAKE)
+        with self.assertRaises(UserError) as ctx:
+            self.contract.fund_compensation_claim("0x0000000000000000000000000000000000000000", "VN302", DEPARTURE_DATE, SHORT_DIST, DEADLINE_TS)
+        self.assertIn("zero address", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # 25. Insurer self-escrow rejected
+    # ------------------------------------------------------------------
+    def test_self_escrow_insurer_rejected(self):
+        """Insurer cannot create a claim for their own wallet address."""
+        mock_gl.message = MockMessage(sender=INSURER, value=STAKE)
+        with self.assertRaises(UserError) as ctx:
+            self.contract.fund_compensation_claim(INSURER, "VN302", DEPARTURE_DATE, SHORT_DIST, DEADLINE_TS)
+        self.assertIn("own wallet address", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # 26. Flight number hygiene (non-alphanumeric rejected)
+    # ------------------------------------------------------------------
+    def test_flight_number_hygiene_rejected(self):
+        """Flight numbers containing symbols or non-alphanumeric characters are rejected."""
+        mock_gl.message = MockMessage(sender=INSURER, value=STAKE)
+        with self.assertRaises(UserError) as ctx:
+            self.contract.fund_compensation_claim(PASSENGER, "VN-302!", DEPARTURE_DATE, SHORT_DIST, DEADLINE_TS)
+        self.assertIn("alphanumeric", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # 27. Exceeding distance bounds rejected (>20,000km)
+    # ------------------------------------------------------------------
+    def test_exceeding_distance_bounds_rejected(self):
+        """Flight distance > 20,000km (unrealistic global flight distance) is rejected."""
+        mock_gl.message = MockMessage(sender=INSURER, value=STAKE)
+        with self.assertRaises(UserError) as ctx:
+            self.contract.fund_compensation_claim(PASSENGER, "VN302", DEPARTURE_DATE, 30000, DEADLINE_TS)
+        self.assertIn("between 1 and 20000", str(ctx.exception))
+
 
 if __name__ == '__main__':
     unittest.main()
+
 
