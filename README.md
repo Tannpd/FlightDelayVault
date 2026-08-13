@@ -157,7 +157,7 @@ npm run dev
 
 ## 🌐 Deployment
 
-- **GenLayer StudioNet Contract**: [`0xFDb21ba414507D1C0d0C7c0292b8909f8E5bB45C`](https://studio.genlayer.com)
+- **GenLayer StudioNet Contract**: [`0x4c478A2137DB044508196eD7DEfa4B574a0145f1`](https://studio.genlayer.com)
 - **Live App**: https://flightdelayguard-app.vercel.app
 - **GitHub**: https://github.com/Tannpd/FlightDelayVault
 - **License**: MIT

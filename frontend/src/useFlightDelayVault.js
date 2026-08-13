@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { createClient, createAccount } from 'genlayer-js';
 import { studionet } from 'genlayer-js/chains';
 
-const CONTRACT_ADDRESS = '0xFDb21ba414507D1C0d0C7c0292b8909f8E5bB45C';
+const CONTRACT_ADDRESS = '0x4c478A2137DB044508196eD7DEfa4B574a0145f1';
 
 // Direct GenLayer Studio RPC Endpoint (supports CORS for POST requests)
 const RPC_ENDPOINT = 'https://studio.genlayer.com/api';
