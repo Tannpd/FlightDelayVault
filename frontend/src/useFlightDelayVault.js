@@ -1,4 +1,4 @@
-const CONTRACT_ADDRESS = '0xPLACEHOLDER';
+const CONTRACT_ADDRESS = '0xFDb21ba414507D1C0d0C7c0292b8909f8E5bB45C';
 
 export function useFlightDelayVault() {
   const fundClaim = async (passenger, flightNumber, departureDate, distanceKm, depositWei, deadlineTs) => { 
