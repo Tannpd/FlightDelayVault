@@ -443,6 +443,38 @@ class TestFlightDelayVault(unittest.TestCase):
         self.assertEqual(claim["status"], "FAILED")
         self.assertEqual(claim["fund"],   STAKE)
 
+    # ------------------------------------------------------------------
+    # 21. Insufficient collateral deposit rejected (< statutory EU261 amount)
+    # ------------------------------------------------------------------
+    def test_insufficient_collateral_deposit_rejected(self):
+        """Funding a claim with less than full EU261 statutory liability for flight distance is rejected."""
+        # 1150km requires €250 = 250 * 10^18 wei. Depositing only 10 GEN (10 * 10^18) must fail.
+        mock_gl.message = MockMessage(sender=INSURER, value=10 * (10 ** 18))
+        with self.assertRaises(UserError) as ctx:
+            self.contract.fund_compensation_claim(PASSENGER, "VN302", DEPARTURE_DATE, 1150, DEADLINE_TS)
+        self.assertIn("requires at least 250 GEN deposit", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # 22. Departure date out of range rejected (e.g. 2026-99-99)
+    # ------------------------------------------------------------------
+    def test_invalid_departure_date_out_of_range_rejected(self):
+        """Invalid month/day values in YYYY-MM-DD are rejected."""
+        mock_gl.message = MockMessage(sender=INSURER, value=STAKE)
+        with self.assertRaises(UserError) as ctx:
+            self.contract.fund_compensation_claim(PASSENGER, "VN302", "2026-99-99", SHORT_DIST, DEADLINE_TS)
+        self.assertIn("valid date", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # 23. Past claim deadline rejected at creation
+    # ------------------------------------------------------------------
+    def test_past_deadline_rejected(self):
+        """Deadlines in the past (before year 2025) are rejected at funding."""
+        mock_gl.message = MockMessage(sender=INSURER, value=STAKE)
+        with self.assertRaises(UserError) as ctx:
+            self.contract.fund_compensation_claim(PASSENGER, "VN302", DEPARTURE_DATE, SHORT_DIST, 1000000000)
+        self.assertIn("valid future Unix timestamp", str(ctx.exception))
+
 
 if __name__ == '__main__':
     unittest.main()
+

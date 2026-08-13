@@ -70,6 +70,7 @@ class Contract(gl.Contract):
     Key Safeguards:
     - Tracking evidence bound to authoritative third-party domains (not airline-controlled).
     - Departure date binding + AI freshness rule: only data for the registered flight date counts.
+    - Full collateral guard: deposit must be >= full EU261 compensation for the flight distance.
     - Compensation amount computed by contract EU261 math from flight_distance_km — NOT from AI.
     - Validator semantic content check: delay_hours must agree within ±1 hour tolerance.
     - Anti-double-claim: one claim per (flight_number + departure_date + passenger) tuple.
@@ -115,17 +116,32 @@ class Contract(gl.Contract):
             raise UserError("Flight number cannot be empty.")
 
         departure_date_clean = departure_date.strip()
-        # Validate YYYY-MM-DD format
-        if (len(departure_date_clean) != 10 or
-                departure_date_clean[4] != '-' or
-                departure_date_clean[7] != '-'):
-            raise UserError("Departure date must be in YYYY-MM-DD format (e.g. 2026-08-01).")
+        # Validate YYYY-MM-DD format & valid date ranges
+        try:
+            parts = departure_date_clean.split('-')
+            if len(parts) != 3 or len(parts[0]) != 4 or len(parts[1]) != 2 or len(parts[2]) != 2:
+                raise ValueError()
+            yr, mo, dy = int(parts[0]), int(parts[1]), int(parts[2])
+            if not (2025 <= yr <= 2035 and 1 <= mo <= 12 and 1 <= dy <= 31):
+                raise ValueError()
+        except Exception:
+            raise UserError("Departure date must be a valid date in YYYY-MM-DD format (e.g. 2026-08-01).")
 
         if flight_distance_km <= 0:
             raise UserError("Flight distance must be greater than zero kilometres.")
 
-        if claim_deadline_ts <= 0:
-            raise UserError("Claim deadline must be a valid positive Unix timestamp.")
+        # SAFEGUARD 1: Deposit must cover full EU261 statutory compensation for flight distance
+        required_units = _eu261_compensation_units(flight_distance_km)
+        required_wei   = bigint(required_units) * bigint(10 ** 18)
+        if bigint(gl.message.value) < required_wei:
+            raise UserError(
+                f"Insufficient funding deposit. A flight distance of {flight_distance_km}km "
+                f"requires at least {required_units} GEN deposit to cover full EU261 statutory liability."
+            )
+
+        # SAFEGUARD 2: Claim deadline must be a valid future Unix timestamp (after year 2025)
+        if claim_deadline_ts < 1735689600:  # 2025-01-01 00:00:00 UTC
+            raise UserError("Claim deadline must be a valid future Unix timestamp.")
 
         # Anti-double-claim: one vault per (flight + date + passenger)
         passenger_addr = to_address(passenger)
@@ -179,7 +195,7 @@ class Contract(gl.Contract):
         if not (url_lower.startswith("http://") or url_lower.startswith("https://")):
             raise UserError("Tracking evidence URL must start with http:// or https://")
 
-        # FIX: Evidence MUST come from authoritative third-party sources — not airline-self-reported
+        # Evidence MUST come from authoritative third-party sources — not airline-self-reported
         if not any(url_lower.startswith(d.lower()) for d in AUTHORIZED_TRACKING_DOMAINS):
             raise UserError(
                 "Tracking evidence URL must originate from an authoritative, independent "
@@ -556,25 +572,56 @@ Return ONLY raw JSON:
             except Exception as e:
                 return json.dumps({"error": f"JSON_PARSE_FAILED: {str(e)}", "deadline_passed": False})
 
+        # Validator independently re-fetches time URL & re-evaluates
         def validator_fn(leader_result: str) -> bool:
             try:
-                l_data = json.loads(leader_result)
+                l_str = leader_result.decode('utf-8', errors='ignore') if isinstance(leader_result, bytes) else str(leader_result)
+                l_s   = l_str.find('{')
+                l_e   = l_str.rfind('}')
+                if l_s == -1 or l_e == -1: return False
+                leader_json = json.loads(l_str[l_s:l_e+1])
             except Exception:
                 return False
-            if "error" in l_data: return False
-            leader_passed = l_data.get("deadline_passed")
+
+            if "error" in leader_json: return False
+            leader_passed = leader_json.get("deadline_passed")
             if not isinstance(leader_passed, bool): return False
 
-            val_result = leader_fn()
+            # Independent validator fetch
             try:
-                v_data = json.loads(val_result)
+                raw = gl.nondet.web.render(time_source_url)
+                time_text = raw.decode('utf-8', errors='ignore').strip() if isinstance(raw, bytes) else str(raw).strip()
             except Exception:
                 return False
-            if "error" in v_data: return False
-            val_passed = v_data.get("deadline_passed")
-            if not isinstance(val_passed, bool): return False
 
-            return leader_passed == val_passed
+            if len(time_text) < 10: return False
+
+            prompt = f"""Extract current Unix timestamp and check if > {deadline_ts}.
+Time Source: \"\"\"{time_text[:500]}\"\"\"
+Return ONLY raw JSON: {{"deadline_passed": true | false}}"""
+
+            try:
+                val_raw = gl.nondet.exec_prompt(prompt)
+                val_str = val_raw.decode('utf-8', errors='ignore').strip() if isinstance(val_raw, bytes) else str(val_raw).strip()
+            except Exception:
+                return False
+
+            cleaned_val = val_str.strip()
+            if cleaned_val.startswith("```"):
+                lines = cleaned_val.split("\n")
+                inner = []
+                for line in lines[1:]:
+                    if line.strip() == "```": break
+                    inner.append(line)
+                cleaned_val = "\n".join(inner).strip()
+
+            try:
+                val_json = json.loads(cleaned_val)
+                val_passed = val_json.get("deadline_passed")
+                if not isinstance(val_passed, bool): return False
+                return leader_passed == val_passed
+            except Exception:
+                return False
 
         final_raw = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
