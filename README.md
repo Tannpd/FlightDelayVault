@@ -16,6 +16,19 @@ Under **EU Regulation 261/2004** and **US DOT regulations**, airline passengers 
 
 ---
 
+## 💡 How FlightDelayVault Works (Submission Notes)
+
+```text
+HOW FLIGHTDELAYVAULT WORKS:
+
+1. EU261 COMPENSATION ESCROW: Insurers deposit native GEN collateral into a smart vault covering 100% statutory liability and bind immutable flight identity fields (fund_compensation_claim). On-chain registry (used_claims) prevents double-claiming.
+2. EVIDENCE SUBMISSION & DOMAIN CONTROL: Passengers submit flight tracking URLs from independent 3rd-party providers (FlightAware, Flightradar24) (file_delay_claim). Airline self-reported URLs are strictly rejected.
+3. AI DELAY AUDIT & CONTRACT MATH: GenLayer AI nodes scrape live flight data via gl.nondet.web.render. Consensus checks departure date freshness rule and delay hours (±1h tolerance). Contract math enforces EU261 distance tiers (€250/€400/€600), overriding AI.
+4. ATOMIC SETTLEMENT & RECOVERY: Qualifying delay (>=3h) auto-transfers EU261 payout to passenger wallet. On-time flights refund 100% deposit back to insurer. Inactive claims allow deadline recovery via AI time consensus (expire_and_release).
+```
+
+---
+
 ## 🏛️ Architecture & Compensation Flow
 
 ```mermaid
@@ -27,7 +40,7 @@ sequenceDiagram
     actor Passenger as Passenger
 
     Insurer->>Vault: 1. fund_compensation_claim(passenger, flight, date, distance_km, deadline) + Lock GEN
-    Note over Vault: Domain Check (sla_policy_url must be authoritative) ✓<br/>Anti-double-claim check ✓<br/>Immutable identity binding (flight + date + passenger) ✓
+    Note over Vault: Domain Check (sla_policy_url must be authoritative) ✓<br/>Anti-double-claim check ✓<br/>Zero-address & self-escrow check ✓<br/>Full deposit collateral guard (>= EU261 liability) ✓<br/>Immutable identity binding (flight + date + passenger) ✓
     Vault-->>Insurer: Claim ID returned. Status: FUNDED
 
     alt Path A: Passenger Files Delay Claim
@@ -65,9 +78,11 @@ sequenceDiagram
 | **AI-inflated compensation** | AI returns `refund_percentage=100` for 2h delay | **Contract-Level EU261 Math Override**: (1) `delay_hours < 3 → is_delayed = False` hard-coded in contract; (2) Compensation = `f(distance_km)` computed by contract, never from AI output |
 | **Validator schema-only check** | Validator only checks JSON keys, not delay content | **Semantic Delay Tolerance**: Validator independently re-scrapes, verifies `abs(leader_hours - val_hours) ≤ 1` AND `leader_delayed == val_delayed` |
 | **Double-claim fraud** | Same passenger claims twice for same flight | **Anti-Double-Claim Registry**: `used_claims[flight+date+passenger]` key permanently set at creation |
+| **Underfunded escrow** | Insurer deposits 1 GEN for a €600 compensation tier | **Full Collateral Guard**: `fund_compensation_claim` rejects deposits smaller than full statutory EU261 liability for flight distance |
+| **Zero-address / self-escrow** | Insurer sets passenger = 0x0 or insurer's own wallet | **Zero-Address & Self-Escrow Protection**: `passenger` cannot be `0x000...000` or `gl.message.sender_address` |
+| **Malformed flight code** | Insurer inputs invalid code or SQL/JSON symbols | **Flight Number Hygiene**: `flight_number` must be alphanumeric IATA/ICAO code (2–10 chars) |
+| **Unrealistic distance** | User inputs 999,999 km distance | **Global Distance Bounds**: Enforces `1 <= distance_km <= 20000` |
 | **Permanently locked funds** | Passenger lost wallet access; insurer funds stuck forever | **Deadline Recovery Path**: `expire_and_release()` with AI-verified time consensus allows insurer to reclaim after deadline |
-| **String boolean coercion** | AI returns `"true"` string instead of `true` boolean | **Strict `isinstance(is_delayed, bool)` validation** → FAILED status, funds preserved |
-| **Zero-value deposit** | Insurer creates vault with 0 GEN | **Deposit > 0 guard** at `fund_compensation_claim` |
 
 ---
 
@@ -101,35 +116,42 @@ Returns full JSON: `{id, passenger, insurer, fund, status, flight_number, depart
 
 ---
 
-## 🧪 Automated Test Suite (20/20 PASSING)
+## 🧪 Automated Test Suite (27/27 PASSING)
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ```text
-test_contract_overrides_ai_short_delay ............. ok
-test_double_claim_same_flight_rejected ............. ok
-test_expire_after_deadline_releases_to_insurer ..... ok
-test_expire_before_deadline_blocked ................ ok
-test_expire_unauthorized_time_domain_rejected ...... ok
-test_failed_scrape_preserves_funds ................. ok
-test_fund_compensation_claim_payable ............... ok
-test_invalid_departure_date_format_rejected ........ ok
-test_long_haul_compensated_600_gen ................. ok
-test_medium_haul_compensated_400_gen ............... ok
-test_no_delay_rejected_insurer_refunded ............ ok
-test_only_insurer_can_expire ....................... ok
-test_only_passenger_can_file_claim ................. ok
-test_reproducible_compilation ...................... ok
-test_short_haul_compensated_250_gen ................ ok
-test_strict_boolean_rejects_string_true ............ ok
-test_unauthorized_tracking_domain_rejected ......... ok
-test_validator_hour_divergence_fails_closed ........ ok
-test_validator_verdict_mismatch_fails_closed ....... ok
-test_zero_deposit_rejected ......................... ok
+test_contract_overrides_ai_short_delay ................. ok
+test_double_claim_same_flight_rejected ................. ok
+test_exceeding_distance_bounds_rejected ................ ok
+test_expire_after_deadline_releases_to_insurer ......... ok
+test_expire_before_deadline_blocked .................... ok
+test_expire_unauthorized_time_domain_rejected .......... ok
+test_failed_scrape_preserves_funds ..................... ok
+test_flight_number_hygiene_rejected .................... ok
+test_fund_compensation_claim_payable ................... ok
+test_insufficient_collateral_deposit_rejected .......... ok
+test_invalid_departure_date_format_rejected ............ ok
+test_invalid_departure_date_out_of_range_rejected ...... ok
+test_long_haul_compensated_600_gen ..................... ok
+test_medium_haul_compensated_400_gen ................... ok
+test_no_delay_rejected_insurer_refunded ................ ok
+test_only_insurer_can_expire ........................... ok
+test_only_passenger_can_file_claim ..................... ok
+test_past_deadline_rejected ............................ ok
+test_reproducible_compilation .......................... ok
+test_self_escrow_insurer_rejected ...................... ok
+test_short_haul_compensated_250_gen .................... ok
+test_strict_boolean_rejects_string_true ................ ok
+test_unauthorized_tracking_domain_rejected ............. ok
+test_validator_hour_divergence_fails_closed ............ ok
+test_validator_verdict_mismatch_fails_closed ........... ok
+test_zero_address_passenger_rejected ................... ok
+test_zero_deposit_rejected ............................. ok
 
-Ran 20 tests in 0.010s
+Ran 27 tests in 0.013s
 OK
 ```
 
@@ -158,6 +180,6 @@ npm run dev
 ## 🌐 Deployment
 
 - **GenLayer StudioNet Contract**: [`0x4c478A2137DB044508196eD7DEfa4B574a0145f1`](https://studio.genlayer.com)
-- **Live App**: https://flightdelayguard-app.vercel.app
+- **Live dApp**: https://frontend-eight-ruby-53.vercel.app
 - **GitHub**: https://github.com/Tannpd/FlightDelayVault
 - **License**: MIT
