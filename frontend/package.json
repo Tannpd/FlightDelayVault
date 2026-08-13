@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "genlayer-js": "^1.1.8",
+    "lucide-react": "^0.468.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

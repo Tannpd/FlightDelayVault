@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import './index.css';
-import { useFlightDelayVault, formatGEN } from './useFlightDelayVault';
+import { useFlightDelayVault, formatGen } from './useFlightDelayVault';
 
 function getEU261Tier(km) {
-  const d = parseInt(km);
+  const d = parseInt(km, 10);
   if (!d || d <= 0) return null;
   if (d <= 1500) return { amount: 250, label: '≤1500km', color: '#F59E0B', bg: 'rgba(245,158,11,0.1)' };
   if (d <= 3500) return { amount: 400, label: '1500–3500km', color: '#00C8FF', bg: 'rgba(0,200,255,0.1)' };
@@ -11,416 +11,646 @@ function getEU261Tier(km) {
 }
 
 export default function App() {
-  const { CONTRACT_ADDRESS, fetchClaims, getClaim, fundClaim, fileClaim } = useFlightDelayVault();
+  const {
+    contractAddress,
+    address,
+    claims,
+    loading,
+    error,
+    txHash,
+    txStatus,
+    connectWallet,
+    fetchClaimsState,
+    fundCompensationClaim,
+    fileDelayClaim,
+    expireAndRelease,
+  } = useFlightDelayVault();
 
   const [activeTab, setActiveTab] = useState('LANDING');
-  const [claims, setClaims] = useState([]);
   const [selectedClaimId, setSelectedClaimId] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
-  const [error, setError] = useState(null);
 
   // Fund form state
   const [passenger, setPassenger] = useState('');
   const [flightNumber, setFlightNumber] = useState('VN302');
   const [departureDate, setDepartureDate] = useState('2026-08-01');
-  const [distanceKm, setDistanceKm] = useState('');
-  const [depositGEN, setDepositGEN] = useState('');
+  const [distanceKm, setDistanceKm] = useState('1150');
+  const [depositGEN, setDepositGEN] = useState('250');
   const [claimDeadline, setClaimDeadline] = useState('');
 
   // Registry state
-  const [trackingUrl, setTrackingUrl] = useState('');
+  const [trackingUrl, setTrackingUrl] = useState('https://flightdelayguard-app.vercel.app/mock_flight.json');
+  const [timeUrl, setTimeUrl] = useState('https://flightdelayguard-app.vercel.app/mock_time.json');
 
-  const loadClaimsData = async () => {
+  // Auto-select first claim if none selected
+  useEffect(() => {
+    if (activeTab === 'REGISTRY' && claims.length > 0 && selectedClaimId === null) {
+      setSelectedClaimId(claims[0].id);
+    }
+  }, [activeTab, claims, selectedClaimId]);
+
+  const handleFundSubmit = async (e) => {
+    e.preventDefault();
+    if (!passenger || !flightNumber || !departureDate || !distanceKm || !depositGEN) return;
+    
+    // Default deadline to 30 days in future if empty
+    const deadlineTimestamp = claimDeadline 
+      ? Math.floor(new Date(claimDeadline).getTime() / 1000)
+      : Math.floor(Date.now() / 1000) + 30 * 24 * 3600;
+
     try {
-      const data = await fetchClaims();
-      setClaims(data);
+      await fundCompensationClaim(passenger, flightNumber, departureDate, distanceKm, depositGEN, deadlineTimestamp);
+      setActiveTab('REGISTRY');
+      setSelectedClaimId(claims.length);
     } catch (err) {
       console.error(err);
     }
   };
 
-  useEffect(() => {
-    if (activeTab === 'DASHBOARD' || activeTab === 'REGISTRY') {
-      loadClaimsData();
-    }
-  }, [activeTab]);
-
-  const handleFundSubmit = async (e) => {
+  const handleFileClaimSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setLoadingStep(0);
+    if (selectedClaimId === null || !trackingUrl) return;
     try {
-      setTimeout(() => setLoadingStep(1), 800);
-      setTimeout(() => setLoadingStep(2), 1600);
-      const res = await fundClaim(passenger, flightNumber, departureDate, distanceKm, depositGEN, claimDeadline);
-      setActiveTab('REGISTRY');
-      setSelectedClaimId(res.claimId);
+      await fileDelayClaim(selectedClaimId, trackingUrl);
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setTimeout(() => setLoading(false), 2000);
+      console.error(err);
     }
   };
 
-  const handleFileClaim = async (e) => {
+  const handleExpireSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setLoadingStep(0);
+    if (selectedClaimId === null || !timeUrl) return;
     try {
-      setTimeout(() => setLoadingStep(1), 1000);
-      setTimeout(() => setLoadingStep(2), 2000);
-      await fileClaim(selectedClaimId, trackingUrl);
-      await loadClaimsData();
-      setTrackingUrl('');
+      await expireAndRelease(selectedClaimId, timeUrl);
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setTimeout(() => setLoading(false), 3000);
+      console.error(err);
     }
   };
+
+  // Compute REAL metrics from claims state on-chain
+  const totalClaimsCount = claims.length;
+  const compensatedCount = claims.filter(c => c.status === 'COMPENSATED').length;
+  const activeVaultsCount = claims.filter(c => c.status === 'FUNDED').length;
+  const totalDisbursedWei = claims.reduce((sum, c) => sum + BigInt(c.compensation_amount || 0), 0n);
+
+  const tier1Count = claims.filter(c => Number(c.flight_distance_km) <= 1500).length;
+  const tier2Count = claims.filter(c => Number(c.flight_distance_km) > 1500 && Number(c.flight_distance_km) <= 3500).length;
+  const tier3Count = claims.filter(c => Number(c.flight_distance_km) > 3500).length;
+
+  const tier1Pct = totalClaimsCount > 0 ? Math.round((tier1Count / totalClaimsCount) * 100) : 0;
+  const tier2Pct = totalClaimsCount > 0 ? Math.round((tier2Count / totalClaimsCount) * 100) : 0;
+  const tier3Pct = totalClaimsCount > 0 ? Math.round((tier3Count / totalClaimsCount) * 100) : 0;
 
   const renderBadge = (status) => {
-    const s = status.toLowerCase();
+    const s = (status || 'FUNDED').toLowerCase();
     return <span className={`badge badge-${s}`}>{status}</span>;
   };
 
-  const selectedClaim = claims.find(c => c.id === selectedClaimId);
+  const selectedClaim = claims.find(c => Number(c.id) === Number(selectedClaimId));
+  const currentTier = getEU261Tier(distanceKm);
 
   return (
     <div className="app-container">
-      <nav className="navbar">
-        <div className="brand-logo">
+      {/* Top Navbar */}
+      <header className="navbar">
+        <div className="brand-logo" onClick={() => setActiveTab('LANDING')} style={{ cursor: 'pointer' }}>
           <div className="brand-icon-box">✈</div>
           <div>
             <div className="brand-title">FlightDelayVault</div>
-            <div className="brand-subtitle">AeroGreen HUD Edition</div>
+            <div className="brand-subtitle">Autonomous EU261 Flight Delay Escrow</div>
           </div>
         </div>
-        <div className="nav-links">
-          <button className={`nav-link ${activeTab === 'LANDING' ? 'active' : ''}`} onClick={() => setActiveTab('LANDING')}>LANDING</button>
-          <button className={`nav-link ${activeTab === 'DASHBOARD' ? 'active' : ''}`} onClick={() => setActiveTab('DASHBOARD')}>DASHBOARD</button>
-          <button className={`nav-link ${activeTab === 'FUND' ? 'active' : ''}`} onClick={() => setActiveTab('FUND')}>FUND</button>
-          <button className={`nav-link ${activeTab === 'REGISTRY' ? 'active' : ''}`} onClick={() => setActiveTab('REGISTRY')}>REGISTRY</button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div className="nav-links">
+            <button
+              onClick={() => setActiveTab('LANDING')}
+              className={`nav-link ${activeTab === 'LANDING' ? 'active' : ''}`}
+            >
+              Landing
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('DASHBOARD');
+                fetchClaimsState();
+              }}
+              className={`nav-link ${activeTab === 'DASHBOARD' ? 'active' : ''}`}
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('FUND')}
+              className={`nav-link ${activeTab === 'FUND' ? 'active' : ''}`}
+            >
+              Fund Claim
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('REGISTRY');
+                fetchClaimsState();
+              }}
+              className={`nav-link ${activeTab === 'REGISTRY' ? 'active' : ''}`}
+            >
+              Claim Registry ({claims.length})
+            </button>
+          </div>
+
+          <div style={{ background: '#0F172A', border: '1px solid var(--border-sky)', borderRadius: '10px', padding: '6px 14px', fontSize: '12px', color: 'var(--cyan-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--cyan-primary)', boxShadow: '0 0 8px var(--cyan-primary)' }} />
+            StudioNet
+          </div>
+
+          {address ? (
+            <div style={{ background: 'var(--cyan-glow)', border: '1px solid rgba(0, 200, 255, 0.4)', borderRadius: '10px', padding: '8px 16px', color: '#FFF', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--font-radar)' }}>
+              <span>👛</span> {address.slice(0, 6)}...{address.slice(-4)}
+            </div>
+          ) : (
+            <button onClick={connectWallet} className="btn-primary" style={{ width: 'auto', padding: '10px 20px', fontSize: '13px' }}>
+              Connect Wallet
+            </button>
+          )}
         </div>
-      </nav>
+      </header>
 
-      <main>
-        {activeTab === 'LANDING' && (
-          <div className="hero-section">
-            <div className="hero-badge">✈ GENLAYER INTELLIGENT CONTRACT · EU261/DOT COMPLIANT</div>
-            <h1 className="hero-title">
-              FlightDelayVault
-              <span className="gradient-text">Autonomous Compensation</span>
-            </h1>
-            <p className="hero-desc">
-              Next-generation smart contracts providing fully automated EU261 passenger compensation. 
-              No forms. No waiting. Verifiable tracking data processed entirely on-chain.
-            </p>
-            <div className="hero-actions">
-              <button className="btn-primary" onClick={() => setActiveTab('DASHBOARD')}>View Dashboard</button>
-              <button className="btn-secondary" onClick={() => setActiveTab('FUND')}>Fund a Claim</button>
-            </div>
-            
-            <div className="hero-stats">
-              <div className="hero-stat-item">
-                <span className="hero-stat-num">€250-€600</span>
-                <span className="hero-stat-lbl">Payout Range</span>
-              </div>
-              <div className="hero-stat-divider"></div>
-              <div className="hero-stat-item">
-                <span className="hero-stat-num">3</span>
-                <span className="hero-stat-lbl">EU261 Tiers</span>
-              </div>
-              <div className="hero-stat-divider"></div>
-              <div className="hero-stat-item">
-                <span className="hero-stat-num">100%</span>
-                <span className="hero-stat-lbl">On-Chain</span>
-              </div>
-            </div>
+      {/* Global Error Banner */}
+      {error && (
+        <div style={{ background: 'var(--rose-glow)', border: '1px solid var(--rose-slash)', borderRadius: '12px', padding: '14px 20px', color: '#FFF', marginBottom: '24px', fontSize: '14px', fontFamily: 'var(--font-radar)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div><strong>Error:</strong> {error}</div>
+          <button onClick={() => fetchClaimsState()} style={{ background: 'transparent', border: '1px solid var(--rose-slash)', color: '#FFF', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontFamily: 'var(--font-radar)' }}>Retry</button>
+        </div>
+      )}
 
-            <div className="features-grid">
-              <div className="feature-card">
-                <div className="feature-icon">🛡️</div>
-                <h3 className="feature-title">Authoritative Tracking</h3>
-                <p className="feature-desc">FlightAware + Flightradar24 consensus. Completely removes airline self-reporting bias.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🧮</div>
-                <h3 className="feature-title">Contract-Level Math</h3>
-                <p className="feature-desc">Compensation computed deterministically by contract code, preventing AI hallucinations.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">⏱️</div>
-                <h3 className="feature-title">Deadline Recovery</h3>
-                <p className="feature-desc">expire_and_settle prevents stuck funds. Guaranteed return to insurer if unclaimed.</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'DASHBOARD' && (
-          <div className="dashboard-grid">
-            <div className="stat-grid">
-              <div className="stat-card">
-                <span className="stat-card-title">Total Claims</span>
-                <span className="stat-card-value">{claims.length}</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-card-title">Compensated</span>
-                <span className="stat-card-value">{claims.filter(c => c.status === 'COMPENSATED').length}</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-card-title">GEN Disbursed</span>
-                <span className="stat-card-value">{claims.reduce((acc, c) => acc + (c.compensation_amount !== '0' ? 1 : 0), 0) * 100}</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-card-title">Active Vaults</span>
-                <span className="stat-card-value">{claims.filter(c => c.status === 'FUNDED').length}</span>
-              </div>
-            </div>
-            
-            <div className="dashboard-middle">
-              <div className="glass-panel">
-                <h3 className="panel-title">📡 Recent Claims</h3>
-                <p className="panel-desc">Latest contract activity</p>
-                <div className="claims-list" style={{ padding: 0 }}>
-                  {claims.slice(0, 5).map(c => (
-                    <div key={c.id} className="claim-card" style={{ marginBottom: 10 }}>
-                      <div className="claim-card-header">
-                        <span className="claim-flight">{c.flight_number}</span>
-                        {renderBadge(c.status)}
-                      </div>
-                      <div className="claim-card-details">
-                        <span>{c.departure_date}</span>
-                        <span>{formatGEN(c.compensation_amount)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="glass-panel">
-                <h3 className="panel-title">📊 EU261 Tier Distribution</h3>
-                <p className="panel-desc">Compensation ranges</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <span style={{ fontFamily: 'var(--font-radar)', fontSize: '14px' }}>Tier 1 (€250)</span>
-                      <span>45%</span>
-                    </div>
-                    <div style={{ width: '100%', height: '8px', background: 'var(--bg-cockpit)', borderRadius: '4px' }}>
-                      <div style={{ width: '45%', height: '100%', background: 'var(--amber-delay)', borderRadius: '4px' }}></div>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <span style={{ fontFamily: 'var(--font-radar)', fontSize: '14px' }}>Tier 2 (€400)</span>
-                      <span>30%</span>
-                    </div>
-                    <div style={{ width: '100%', height: '8px', background: 'var(--bg-cockpit)', borderRadius: '4px' }}>
-                      <div style={{ width: '30%', height: '100%', background: 'var(--cyan-primary)', borderRadius: '4px' }}></div>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <span style={{ fontFamily: 'var(--font-radar)', fontSize: '14px' }}>Tier 3 (€600)</span>
-                      <span>25%</span>
-                    </div>
-                    <div style={{ width: '100%', height: '8px', background: 'var(--bg-cockpit)', borderRadius: '4px' }}>
-                      <div style={{ width: '25%', height: '100%', background: 'var(--emerald-ok)', borderRadius: '4px' }}></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="glass-panel" style={{ marginTop: '10px' }}>
-              <h3 className="panel-title">🔗 Contract Information</h3>
-              <div style={{ fontFamily: 'var(--font-radar)', color: 'var(--cyan-primary)', marginTop: '10px' }}>
-                Address: {CONTRACT_ADDRESS}<br/>
-                Network: GenLayer Testnet<br/>
-                Repository: github.com/user/flightdelayvault
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'FUND' && (
-          <div style={{ padding: '40px 0', maxWidth: '600px', margin: '0 auto' }}>
-            <div className="glass-panel">
-              <h2 className="panel-title">🔒 Lock Compensation Vault</h2>
-              <p className="panel-desc">Initialize a new claim for an insured passenger</p>
-              
-              <form onSubmit={handleFundSubmit}>
-                <div className="form-group">
-                  <label className="form-label">Passenger Wallet Address</label>
-                  <input type="text" className="form-input" value={passenger} onChange={e => setPassenger(e.target.value)} required placeholder="0x..." />
-                </div>
-                <div style={{ display: 'flex', gap: '20px' }}>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Flight Number</label>
-                    <input type="text" className="form-input" value={flightNumber} onChange={e => setFlightNumber(e.target.value)} required />
-                  </div>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Departure Date</label>
-                    <input type="date" className="form-input" value={departureDate} onChange={e => setDepartureDate(e.target.value)} required />
-                  </div>
-                </div>
-                
-                <div className="form-group">
-                  <label className="form-label">Flight Distance (km)</label>
-                  <input type="number" className="form-input" value={distanceKm} onChange={e => setDistanceKm(e.target.value)} required />
-                  {distanceKm && getEU261Tier(distanceKm) && (
-                    <div className="eu261-tier-badge" style={{ 
-                      color: getEU261Tier(distanceKm).color, 
-                      backgroundColor: getEU261Tier(distanceKm).bg,
-                      border: `1px solid ${getEU261Tier(distanceKm).color}`
-                    }}>
-                      {getEU261Tier(distanceKm).label} → €{getEU261Tier(distanceKm).amount}
-                    </div>
-                  )}
-                </div>
-                
-                <div className="form-group">
-                  <label className="form-label">GEN Deposit Amount (Wei)</label>
-                  <input type="text" className="form-input" value={depositGEN} onChange={e => setDepositGEN(e.target.value)} required placeholder="e.g. 250000000000000000000" />
-                </div>
-                
-                <div className="form-group">
-                  <label className="form-label">Claim Deadline</label>
-                  <input type="datetime-local" className="form-input" value={claimDeadline} onChange={e => setClaimDeadline(e.target.value)} required />
-                </div>
-                
-                <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>🔒 Lock Compensation Vault</button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'REGISTRY' && (
-          <div className="registry-layout">
-            <div className="claims-sidebar">
-              <div className="sidebar-header">
-                <span style={{ fontFamily: 'var(--font-cockpit)', fontWeight: 'bold' }}>Claim Registry</span>
-                <span className="badge badge-funded">{claims.length}</span>
-              </div>
-              <div className="claims-list">
-                {claims.map(c => (
-                  <div key={c.id} className={`claim-card ${selectedClaimId === c.id ? 'selected' : ''}`} onClick={() => setSelectedClaimId(c.id)}>
-                    <div className="claim-card-header">
-                      <span className="claim-flight">{c.flight_number}</span>
-                      {renderBadge(c.status)}
-                    </div>
-                    <div className="claim-card-details">
-                      <span>{c.departure_date}</span>
-                      <span>{formatGEN(c.compensation_amount)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div className="claim-detail-panel">
-              {selectedClaim ? (
-                <>
-                  <div className="detail-header">
-                    <div className="detail-title">
-                      <h2>{selectedClaim.flight_number}</h2>
-                      <p>Departure: {selectedClaim.departure_date}</p>
-                    </div>
-                    {renderBadge(selectedClaim.status)}
-                  </div>
-                  
-                  <div className="timeline-steps">
-                    <div className="timeline-step">
-                      <div className="step-dot completed">✓</div>
-                      <span className="step-label">FUNDED</span>
-                    </div>
-                    <div className="timeline-step">
-                      <div className={`step-dot ${selectedClaim.status !== 'FUNDED' ? 'completed' : 'active'}`}>
-                        {selectedClaim.status !== 'FUNDED' ? '✓' : '2'}
-                      </div>
-                      <span className="step-label">CLAIMED</span>
-                    </div>
-                    <div className="timeline-step">
-                      <div className={`step-dot ${['COMPENSATED', 'REJECTED', 'FAILED'].includes(selectedClaim.status) ? 'completed' : ''}`}>
-                        {['COMPENSATED', 'REJECTED', 'FAILED'].includes(selectedClaim.status) ? '✓' : '3'}
-                      </div>
-                      <span className="step-label">RESULT</span>
-                    </div>
-                  </div>
-                  
-                  <div className="metrics-grid">
-                    <div className="metric-box">
-                      <div className="metric-label">Delay</div>
-                      <div className="metric-value">{selectedClaim.delay_hours}h</div>
-                    </div>
-                    <div className="metric-box">
-                      <div className="metric-label">Distance</div>
-                      <div className="metric-value">{selectedClaim.flight_distance_km}km</div>
-                    </div>
-                    <div className="metric-box">
-                      <div className="metric-label">Payout</div>
-                      <div className="metric-value" style={{ color: 'var(--cyan-primary)' }}>{formatGEN(selectedClaim.compensation_amount)}</div>
-                    </div>
-                    <div className="metric-box">
-                      <div className="metric-label">Deadline</div>
-                      <div className="metric-value" style={{ fontSize: '14px' }}>
-                        {new Date(selectedClaim.deadline * 1000).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="decree-box">
-                    <div className="decree-title">🤖 AI Validator Reasoning</div>
-                    <div className="decree-content">{selectedClaim.reasoning}</div>
-                  </div>
-                  
-                  {(selectedClaim.status === 'FUNDED' || selectedClaim.status === 'FAILED') && (
-                    <div className="action-box">
-                      <h3 style={{ fontFamily: 'var(--font-cockpit)', marginBottom: '15px' }}>File Claim</h3>
-                      <form onSubmit={handleFileClaim}>
-                        <div className="form-group">
-                          <label className="form-label">Tracking Evidence URL (FlightAware/Flightradar24)</label>
-                          <input type="url" className="form-input" value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)} required placeholder="https://flightaware.com/..." />
-                        </div>
-                        <button type="submit" className="btn-primary">📡 Submit Delay Evidence</button>
-                      </form>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)' }}>
-                  Select a claim from the registry to view details
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </main>
-
+      {/* Modern Web3 Full-Screen Loading Modal Overlay */}
       {loading && (
         <div className="modal-overlay">
           <div className="loading-modal-card">
             <div className="loading-spinner-box">
-              <div className="spinner-glow-ring"></div>
-              <div className="spinner-inner"></div>
+              <div className="animate-spin" style={{ fontSize: '36px', color: 'var(--cyan-primary)' }}>🔄</div>
+              <div className="spinner-glow-ring" />
             </div>
-            <h3 className="loading-title">Processing Vault Action</h3>
+
+            <h3 className="loading-modal-title">
+              GenLayer EU261 Audit Consensus in Progress
+            </h3>
+
+            <p className="loading-modal-status">
+              {txStatus || 'Connecting to GenLayer Virtual Machine & AI Validator Nodes...'}
+            </p>
+
             <div className="loading-steps-box">
-              <div className={`loading-step-item ${loadingStep === 0 ? 'active' : loadingStep > 0 ? 'completed' : ''}`}>
-                <div className="step-indicator"></div>
-                Submitting transaction to GenLayer network...
+              <div className="loading-step-item">
+                <span className="step-dot active" />
+                <span>1. Scraper Node fetching authoritative flight tracking evidence</span>
               </div>
-              <div className={`loading-step-item ${loadingStep === 1 ? 'active' : loadingStep > 1 ? 'completed' : ''}`}>
-                <div className="step-indicator"></div>
-                AI Validators independently scraping flight tracking data...
+              <div className="loading-step-item">
+                <span className="step-dot active" />
+                <span>2. Leader AI Auditor evaluating delay hours against departure date</span>
               </div>
-              <div className={`loading-step-item ${loadingStep === 2 ? 'active' : loadingStep > 2 ? 'completed' : ''}`}>
-                <div className="step-indicator"></div>
-                Applying EU261 compensation math on-chain...
+              <div className="loading-step-item">
+                <span className="step-dot active" />
+                <span>3. Validator Nodes re-scraping & verifying semantic consensus</span>
               </div>
             </div>
+
+            {txHash && (
+              <div className="loading-tx-hash">
+                <span>TX HASH:</span> {txHash}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* LANDING TAB */}
+      {activeTab === 'LANDING' && (
+        <div className="landing-wrapper">
+          <div className="hero-section">
+            <div className="hero-badge">
+              <span>✈ GENLAYER INTELLIGENT CONTRACT · EU261 / US DOT COMPLIANT</span>
+            </div>
+
+            <h1 className="hero-title">
+              Autonomous Flight Delay Escrow <br />
+              <span className="gradient-text">Instant On-Chain EU261 Compensation</span>
+            </h1>
+
+            <p className="hero-description">
+              Eliminate paper forms and airline delay excuses. FlightDelayVault locks compensation funds into GenLayer Intelligent Contracts. Independent AI Validators scrape FlightAware and Flightradar24, automatically releasing €250–€600 compensation to passengers for delays ≥ 3 hours.
+            </p>
+
+            <div className="hero-cta-group">
+              <button onClick={() => { setActiveTab('DASHBOARD'); fetchClaimsState(); }} className="btn-primary" style={{ width: 'auto', padding: '16px 36px', fontSize: '16px' }}>
+                View Dashboard
+              </button>
+              <button onClick={() => setActiveTab('FUND')} className="btn-secondary">
+                Fund Compensation Vault
+              </button>
+            </div>
+
+            <div className="hero-stats">
+              <div className="hero-stat-item">
+                <div className="hero-stat-num">{totalClaimsCount}</div>
+                <div className="hero-stat-lbl">Registered Vault Claims</div>
+              </div>
+              <div className="hero-stat-divider" />
+              <div className="hero-stat-item">
+                <div className="hero-stat-num" style={{ color: 'var(--emerald-ok)' }}>{formatGen(totalDisbursedWei.toString())} GEN</div>
+                <div className="hero-stat-lbl">Total EU261 Disbursed</div>
+              </div>
+              <div className="hero-stat-divider" />
+              <div className="hero-stat-item">
+                <div className="hero-stat-num" style={{ color: 'var(--cyan-primary)' }}>{compensatedCount}</div>
+                <div className="hero-stat-lbl">Compensated Passengers</div>
+              </div>
+              <div className="hero-stat-divider" />
+              <div className="hero-stat-item">
+                <div className="hero-stat-num" style={{ color: 'var(--amber-delay)' }}>{activeVaultsCount}</div>
+                <div className="hero-stat-lbl">Active Pending Vaults</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="features-grid">
+            <div className="feature-card">
+              <div className="feature-icon" style={{ background: 'var(--cyan-glow)', color: 'var(--cyan-primary)' }}>🛡️</div>
+              <h3 className="feature-title">Authoritative Tracking Sources</h3>
+              <p className="feature-text">
+                Evidence URLs must originate from independent tracking providers (<span className="code-tag">flightaware.com</span>, <span className="code-tag">flightradar24.com</span>). Airline self-reported status pages are rejected.
+              </p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon" style={{ background: 'var(--emerald-glow)', color: 'var(--emerald-ok)' }}>🧮</div>
+              <h3 className="feature-title">Contract-Level EU261 Math</h3>
+              <p className="feature-text">
+                Compensation tiers (€250 / €400 / €600) are computed strictly by contract Python code based on flight distance. AI output is never trusted for financial amounts.
+              </p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon" style={{ background: 'var(--amber-glow)', color: 'var(--amber-delay)' }}>⏱️</div>
+              <h3 className="feature-title">Deadline Expiry Recovery</h3>
+              <p className="feature-text">
+                If passengers do not file a claim before the deadline, insurers can reclaim locked funds via AI-verified time consensus, preventing funds from being trapped indefinitely.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DASHBOARD TAB */}
+      {activeTab === 'DASHBOARD' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <div>
+              <h2 style={{ fontFamily: 'var(--font-cockpit)', fontSize: '24px', color: '#FFF' }}>Protocol Dashboard</h2>
+              <p style={{ fontSize: '13px', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)' }}>Real-time state fetched directly from GenLayer StudioNet contract</p>
+            </div>
+            <button onClick={() => fetchClaimsState()} className="btn-secondary" style={{ padding: '8px 16px', fontSize: '12px' }}>
+              🔄 Refresh State
+            </button>
+          </div>
+
+          <div className="dashboard-grid">
+            <div className="stat-card">
+              <div className="stat-header">TOTAL REGISTERED CLAIMS</div>
+              <div className="stat-value">{totalClaimsCount}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-header">COMPENSATED CLAIMS</div>
+              <div className="stat-value" style={{ color: 'var(--emerald-ok)' }}>{compensatedCount}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-header">GEN DISBURSED</div>
+              <div className="stat-value" style={{ color: 'var(--cyan-primary)' }}>{formatGen(totalDisbursedWei.toString())} GEN</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-header">ACTIVE PENDING VAULTS</div>
+              <div className="stat-value" style={{ color: 'var(--amber-delay)' }}>{activeVaultsCount}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
+            <div className="glass-panel">
+              <div className="panel-title">📡 On-Chain Claim Records ({claims.length})</div>
+              <div className="panel-desc">Live claims stored in GenLayer contract storage</div>
+
+              {claims.length === 0 ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)' }}>
+                  No claims found in contract storage yet. Click "Fund Claim" tab to register the first claim!
+                </div>
+              ) : (
+                <div className="dossier-list">
+                  {claims.map((claim) => (
+                    <div
+                      key={claim.id}
+                      className={`dossier-item ${selectedClaimId === claim.id ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedClaimId(claim.id);
+                        setActiveTab('REGISTRY');
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ fontFamily: 'var(--font-cockpit)', fontSize: '18px', fontWeight: 700, color: '#FFF' }}>
+                            {claim.flight_number}
+                          </span>
+                          <span style={{ marginLeft: '12px', fontFamily: 'var(--font-radar)', fontSize: '12px', color: 'var(--text-radar)' }}>
+                            {claim.departure_date} · {claim.flight_distance_km} km
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          {renderBadge(claim.status)}
+                          <span style={{ fontFamily: 'var(--font-cockpit)', fontWeight: 700, color: 'var(--cyan-primary)' }}>
+                            {formatGen(claim.compensation_amount || '0')} GEN
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="glass-panel">
+              <div className="panel-title">📊 EU261 Tier Distribution</div>
+              <div className="panel-desc">Breakdown by flight distance tier</div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '10px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-radar)', marginBottom: '6px' }}>
+                    <span style={{ color: 'var(--amber-delay)' }}>Tier 1 (≤1500km — €250)</span>
+                    <span style={{ color: '#FFF' }}>{tier1Count} ({tier1Pct}%)</span>
+                  </div>
+                  <div className="progress-bar-track">
+                    <div className="progress-bar-fill" style={{ width: `${tier1Pct}%`, background: 'var(--amber-delay)' }} />
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-radar)', marginBottom: '6px' }}>
+                    <span style={{ color: 'var(--cyan-primary)' }}>Tier 2 (1500–3500km — €400)</span>
+                    <span style={{ color: '#FFF' }}>{tier2Count} ({tier2Pct}%)</span>
+                  </div>
+                  <div className="progress-bar-track">
+                    <div className="progress-bar-fill" style={{ width: `${tier2Pct}%`, background: 'var(--cyan-primary)' }} />
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-radar)', marginBottom: '6px' }}>
+                    <span style={{ color: 'var(--emerald-ok)' }}>Tier 3 (&gt;3500km — €600)</span>
+                    <span style={{ color: '#FFF' }}>{tier3Count} ({tier3Pct}%)</span>
+                  </div>
+                  <div className="progress-bar-track">
+                    <div className="progress-bar-fill" style={{ width: `${tier3Pct}%`, background: 'var(--emerald-ok)' }} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '30px', padding: '16px', background: '#071124', borderRadius: '12px', border: '1px solid var(--border-sky)', fontSize: '11px', fontFamily: 'var(--font-radar)', color: 'var(--text-radar)' }}>
+                <div><strong>Contract Address:</strong></div>
+                <div style={{ color: 'var(--cyan-primary)', wordBreak: 'break-all', marginTop: '4px' }}>{contractAddress}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FUND TAB */}
+      {activeTab === 'FUND' && (
+        <div style={{ maxWidth: '720px', margin: '0 auto' }}>
+          <div className="glass-panel">
+            <h2 className="panel-title">🔒 Lock Compensation Vault</h2>
+            <p className="panel-desc">
+              Airlines / insurers lock EU261 compensation funds per passenger. Flight identity fields (flight number, date, distance) become immutable upon creation.
+            </p>
+
+            <form onSubmit={handleFundSubmit}>
+              <div className="form-group">
+                <label className="form-label">Passenger Wallet Address</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="0x1111111111111111111111111111111111111111"
+                  value={passenger}
+                  onChange={e => setPassenger(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="form-group">
+                  <label className="form-label">Flight Number</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="VN302"
+                    value={flightNumber}
+                    onChange={e => setFlightNumber(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Departure Date (YYYY-MM-DD)</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={departureDate}
+                    onChange={e => setDepartureDate(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Flight Distance (km)
+                  {currentTier && (
+                    <span style={{ marginLeft: '12px', padding: '2px 10px', borderRadius: '12px', background: currentTier.bg, color: currentTier.color, fontSize: '11px' }}>
+                      EU261 Tier: €{currentTier.amount} ({currentTier.label})
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  className="form-input"
+                  placeholder="e.g. 1150 for HAN→SGN"
+                  value={distanceKm}
+                  onChange={e => setDistanceKm(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="form-group">
+                  <label className="form-label">GEN Deposit Amount (1 GEN = 1 €)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. 250"
+                    value={depositGEN}
+                    onChange={e => setDepositGEN(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Claim Deadline (Optional)</label>
+                  <input
+                    type="datetime-local"
+                    className="form-input"
+                    value={claimDeadline}
+                    onChange={e => setClaimDeadline(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: '12px' }}>
+                🔒 Lock Compensation Vault On-Chain
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* REGISTRY TAB */}
+      {activeTab === 'REGISTRY' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: '24px' }}>
+          {/* Left Sidebar List */}
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ fontFamily: 'var(--font-cockpit)', fontWeight: 700, fontSize: '16px', color: '#FFF' }}>
+                Claim Registry ({claims.length})
+              </div>
+              <button onClick={() => fetchClaimsState()} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-primary)', cursor: 'pointer', fontSize: '14px' }}>🔄</button>
+            </div>
+
+            {claims.length === 0 ? (
+              <div style={{ color: 'var(--text-radar)', fontSize: '13px', fontFamily: 'var(--font-radar)', padding: '20px 0', textAlign: 'center' }}>
+                No claims loaded from contract. Click 🔄 to refresh.
+              </div>
+            ) : (
+              <div className="dossier-list">
+                {claims.map((claim) => (
+                  <div
+                    key={claim.id}
+                    className={`dossier-item ${Number(selectedClaimId) === Number(claim.id) ? 'selected' : ''}`}
+                    onClick={() => setSelectedClaimId(claim.id)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontFamily: 'var(--font-cockpit)', fontSize: '16px', fontWeight: 700, color: '#FFF' }}>
+                        {claim.flight_number}
+                      </span>
+                      {renderBadge(claim.status)}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontFamily: 'var(--font-radar)', color: 'var(--text-radar)' }}>
+                      <span>{claim.departure_date}</span>
+                      <span style={{ color: 'var(--cyan-primary)' }}>{formatGen(claim.compensation_amount || '0')} GEN</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right Detail Panel */}
+          <div className="glass-panel">
+            {selectedClaim ? (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                  <div>
+                    <h2 style={{ fontFamily: 'var(--font-cockpit)', fontSize: '28px', color: '#FFF' }}>{selectedClaim.flight_number}</h2>
+                    <p style={{ fontFamily: 'var(--font-radar)', fontSize: '13px', color: 'var(--text-radar)', marginTop: '4px' }}>
+                      Departure Date: {selectedClaim.departure_date} · Passenger: {selectedClaim.passenger}
+                    </p>
+                  </div>
+                  <div>{renderBadge(selectedClaim.status)}</div>
+                </div>
+
+                <div className="stat-grid">
+                  <div className="stat-card">
+                    <div className="stat-header">DELAY HOURS</div>
+                    <div className="stat-value">{selectedClaim.delay_hours || 0}h</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-header">FLIGHT DISTANCE</div>
+                    <div className="stat-value">{selectedClaim.flight_distance_km} km</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-header">EU261 PAYOUT</div>
+                    <div className="stat-value" style={{ color: 'var(--cyan-primary)' }}>{formatGen(selectedClaim.compensation_amount || '0')} GEN</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-header">VAULT BALANCE</div>
+                    <div className="stat-value">{formatGen(selectedClaim.fund || '0')} GEN</div>
+                  </div>
+                </div>
+
+                <div className={`decree-box ${selectedClaim.status === 'COMPENSATED' ? 'verified' : selectedClaim.status === 'REJECTED' ? 'slashed' : ''}`}>
+                  <div style={{ fontFamily: 'var(--font-cockpit)', fontSize: '14px', fontWeight: 700, color: '#FFF', marginBottom: '8px' }}>
+                    🤖 GenLayer AI Auditor Reasoning
+                  </div>
+                  <p style={{ fontFamily: 'var(--font-radar)', fontSize: '13px', color: 'var(--text-radar)', lineHeight: '20px' }}>
+                    {selectedClaim.reasoning || 'Awaiting delay claim submission and AI consensus verification.'}
+                  </p>
+                </div>
+
+                {/* File Delay Claim Form (if FUNDED or FAILED) */}
+                {(selectedClaim.status === 'FUNDED' || selectedClaim.status === 'FAILED') && (
+                  <div style={{ marginTop: '30px', padding: '20px', background: '#071124', borderRadius: '16px', border: '1px solid var(--border-sky)' }}>
+                    <h3 style={{ fontFamily: 'var(--font-cockpit)', fontSize: '16px', color: '#FFF', marginBottom: '8px' }}>
+                      📡 File Flight Delay Claim
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)', marginBottom: '16px' }}>
+                      Submit official flight tracking URL (FlightAware or Flightradar24) to trigger GenLayer AI consensus.
+                    </p>
+
+                    <form onSubmit={handleFileClaimSubmit}>
+                      <div className="form-group">
+                        <label className="form-label">Flight Tracking Evidence URL</label>
+                        <input
+                          type="url"
+                          className="form-input"
+                          value={trackingUrl}
+                          onChange={e => setTrackingUrl(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <button type="submit" className="btn-primary" disabled={loading}>
+                        📡 Submit Delay Evidence & Trigger AI Consensus
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* Expire & Release Section (for Insurers) */}
+                {selectedClaim.status === 'FUNDED' && (
+                  <div style={{ marginTop: '20px', padding: '16px', background: '#071124', borderRadius: '12px', border: '1px solid var(--border-amber)' }}>
+                    <div style={{ fontSize: '12px', fontFamily: 'var(--font-radar)', color: 'var(--amber-delay)', marginBottom: '8px' }}>
+                      ⏱️ Insurer Recovery: Claim deadline = {selectedClaim.deadline ? new Date(selectedClaim.deadline * 1000).toLocaleString() : 'N/A'}
+                    </div>
+                    <form onSubmit={handleExpireSubmit} style={{ display: 'flex', gap: '12px' }}>
+                      <input
+                        type="url"
+                        className="form-input"
+                        style={{ fontSize: '12px', padding: '8px 12px' }}
+                        value={timeUrl}
+                        onChange={e => setTimeUrl(e.target.value)}
+                        placeholder="Authoritative Time Source URL"
+                      />
+                      <button type="submit" className="btn-secondary" style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '12px' }} disabled={loading}>
+                        Expire & Recover Funds
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)' }}>
+                Select a claim from the left registry sidebar to inspect details or file evidence.
+              </div>
+            )}
           </div>
         </div>
       )}
