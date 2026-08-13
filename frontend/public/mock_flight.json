@@ -1,0 +1,10 @@
+{
+  "flight": "VN302",
+  "date": "2026-08-01",
+  "scheduled_departure": "08:00 UTC",
+  "actual_departure": "12:30 UTC",
+  "delay_minutes": 270,
+  "status": "DELAYED",
+  "route": "HAN → SGN",
+  "distance_km": 1150
+}
