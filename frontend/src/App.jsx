@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import './index.css';
 import { useFlightDelayVault, formatGen } from './useFlightDelayVault';
+import {
+  Plane, ShieldCheck, Calculator, Clock, RefreshCw, Wallet,
+  PlusCircle, ArrowRight, ExternalLink, FileText, Sparkles,
+  CheckCircle2, AlertCircle, BarChart3, Layers, Send, ChevronRight
+} from 'lucide-react';
 
 function getEU261Tier(km) {
   const d = parseInt(km, 10);
   if (!d || d <= 0) return null;
-  if (d <= 1500) return { amount: 250, label: '≤1500km', color: '#F59E0B', bg: 'rgba(245,158,11,0.1)' };
-  if (d <= 3500) return { amount: 400, label: '1500–3500km', color: '#00C8FF', bg: 'rgba(0,200,255,0.1)' };
-  return { amount: 600, label: '>3500km', color: '#10B981', bg: 'rgba(16,185,129,0.1)' };
+  if (d <= 1500) return { amount: 250, label: '≤1500km', color: 'var(--amber-warning)', bg: 'rgba(245,158,11,0.1)' };
+  if (d <= 3500) return { amount: 400, label: '1500–3500km', color: 'var(--sky-primary)', bg: 'rgba(0,200,255,0.1)' };
+  return { amount: 600, label: '>3500km', color: 'var(--emerald-success)', bg: 'rgba(16,185,129,0.1)' };
 }
 
 export default function App() {
@@ -112,11 +117,11 @@ export default function App() {
     <div className="app-container">
       {/* Top Navbar */}
       <header className="navbar">
-        <div className="brand-logo" onClick={() => setActiveTab('LANDING')} style={{ cursor: 'pointer' }}>
-          <div className="brand-icon-box">✈</div>
+        <div className="nav-brand" onClick={() => setActiveTab('LANDING')} style={{ cursor: 'pointer' }}>
+          <Plane size={24} color="var(--sky-primary)" />
           <div>
-            <div className="brand-title">FlightDelayVault</div>
-            <div className="brand-subtitle">Autonomous EU261 Flight Delay Escrow</div>
+            <div style={{ lineHeight: '1.2' }}>FlightDelayVault</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>Autonomous EU261 Flight Delay Escrow</div>
           </div>
         </div>
 
@@ -154,18 +159,18 @@ export default function App() {
             </button>
           </div>
 
-          <div style={{ background: '#0F172A', border: '1px solid var(--border-sky)', borderRadius: '10px', padding: '6px 14px', fontSize: '12px', color: 'var(--cyan-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--cyan-primary)', boxShadow: '0 0 8px var(--cyan-primary)' }} />
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '8px 16px', fontSize: '13px', color: 'var(--sky-primary)', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--sky-primary)', boxShadow: '0 0 8px var(--sky-primary)' }} />
             StudioNet
           </div>
 
           {address ? (
-            <div style={{ background: 'var(--cyan-glow)', border: '1px solid rgba(0, 200, 255, 0.4)', borderRadius: '10px', padding: '8px 16px', color: '#FFF', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--font-radar)' }}>
-              <span>👛</span> {address.slice(0, 6)}...{address.slice(-4)}
+            <div className="wallet-button connected mono">
+              <Wallet size={16} /> {address.slice(0, 6)}...{address.slice(-4)}
             </div>
           ) : (
-            <button onClick={connectWallet} className="btn-primary" style={{ width: 'auto', padding: '10px 20px', fontSize: '13px' }}>
-              Connect Wallet
+            <button onClick={connectWallet} className="wallet-button">
+              <Wallet size={16} /> Connect Wallet
             </button>
           )}
         </div>
@@ -173,9 +178,12 @@ export default function App() {
 
       {/* Global Error Banner */}
       {error && (
-        <div style={{ background: 'var(--rose-glow)', border: '1px solid var(--rose-slash)', borderRadius: '12px', padding: '14px 20px', color: '#FFF', marginBottom: '24px', fontSize: '14px', fontFamily: 'var(--font-radar)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div><strong>Error:</strong> {error}</div>
-          <button onClick={() => fetchClaimsState()} style={{ background: 'transparent', border: '1px solid var(--rose-slash)', color: '#FFF', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontFamily: 'var(--font-radar)' }}>Retry</button>
+        <div style={{ background: 'rgba(244, 63, 94, 0.1)', border: '1px solid var(--rose-danger)', borderRadius: '12px', padding: '16px 20px', color: '#FFF', marginBottom: '24px', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <AlertCircle size={20} color="var(--rose-danger)" />
+            <span><strong>Error:</strong> {error}</span>
+          </div>
+          <button onClick={() => fetchClaimsState()} style={{ background: 'transparent', border: '1px solid var(--rose-danger)', color: '#FFF', padding: '6px 16px', borderRadius: '8px', cursor: 'pointer' }}>Retry</button>
         </div>
       )}
 
@@ -183,37 +191,34 @@ export default function App() {
       {loading && (
         <div className="modal-overlay">
           <div className="loading-modal-card">
-            <div className="loading-spinner-box">
-              <div className="animate-spin" style={{ fontSize: '36px', color: 'var(--cyan-primary)' }}>🔄</div>
-              <div className="spinner-glow-ring" />
-            </div>
+            <RefreshCw className="loading-spinner" size={48} />
 
-            <h3 className="loading-modal-title">
+            <h3 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-heading)', marginBottom: '12px' }}>
               GenLayer EU261 Audit Consensus in Progress
             </h3>
 
-            <p className="loading-modal-status">
+            <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
               {txStatus || 'Connecting to GenLayer Virtual Machine & AI Validator Nodes...'}
             </p>
 
-            <div className="loading-steps-box">
-              <div className="loading-step-item">
-                <span className="step-dot active" />
-                <span>1. Scraper Node fetching authoritative flight tracking evidence</span>
+            <div style={{ textAlign: 'left', background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
+                <CheckCircle2 size={16} color="var(--sky-primary)" />
+                <span style={{ fontSize: '14px' }}>1. Scraper Node fetching authoritative flight tracking evidence</span>
               </div>
-              <div className="loading-step-item">
-                <span className="step-dot active" />
-                <span>2. Leader AI Auditor evaluating delay hours against departure date</span>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
+                <CheckCircle2 size={16} color="var(--sky-primary)" />
+                <span style={{ fontSize: '14px' }}>2. Leader AI Auditor evaluating delay hours against departure date</span>
               </div>
-              <div className="loading-step-item">
-                <span className="step-dot active" />
-                <span>3. Validator Nodes re-scraping & verifying semantic consensus</span>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <CheckCircle2 size={16} color="var(--sky-primary)" />
+                <span style={{ fontSize: '14px' }}>3. Validator Nodes re-scraping & verifying semantic consensus</span>
               </div>
             </div>
 
             {txHash && (
-              <div className="loading-tx-hash">
-                <span>TX HASH:</span> {txHash}
+              <div className="mono" style={{ fontSize: '13px', color: 'var(--sky-primary)', background: 'var(--sky-glow)', padding: '12px', borderRadius: '8px' }}>
+                <span style={{ fontWeight: 700 }}>TX HASH:</span> {txHash}
               </div>
             )}
           </div>
@@ -222,74 +227,72 @@ export default function App() {
 
       {/* LANDING TAB */}
       {activeTab === 'LANDING' && (
-        <div className="landing-wrapper">
-          <div className="hero-section">
-            <div className="hero-badge">
-              <span>✈ GENLAYER INTELLIGENT CONTRACT · EU261 / US DOT COMPLIANT</span>
+        <div className="hero-wrapper">
+          <div className="hero-badge">
+            <Plane size={14} /> GENLAYER INTELLIGENT CONTRACT · EU261 / US DOT COMPLIANT
+          </div>
+
+          <h1 className="hero-title">
+            Autonomous Flight Delay Escrow <br />
+            <span>Instant On-Chain EU261 Compensation</span>
+          </h1>
+
+          <p className="hero-subtitle">
+            Eliminate paper forms and airline delay excuses. FlightDelayVault locks compensation funds into GenLayer Intelligent Contracts. Independent AI Validators scrape FlightAware and Flightradar24, automatically releasing €250–€600 compensation to passengers for delays ≥ 3 hours.
+          </p>
+
+          <div className="hero-cta-group">
+            <button onClick={() => { setActiveTab('DASHBOARD'); fetchClaimsState(); }} className="btn-primary">
+              <BarChart3 size={20} /> View Dashboard
+            </button>
+            <button onClick={() => setActiveTab('FUND')} className="btn-secondary">
+              <PlusCircle size={20} /> Fund Compensation Vault
+            </button>
+          </div>
+
+          <div className="hero-stats-row">
+            <div className="hero-stat-item">
+              <div className="hero-stat-num">{totalClaimsCount}</div>
+              <div className="hero-stat-lbl">Registered Vault Claims</div>
             </div>
-
-            <h1 className="hero-title">
-              Autonomous Flight Delay Escrow <br />
-              <span className="gradient-text">Instant On-Chain EU261 Compensation</span>
-            </h1>
-
-            <p className="hero-description">
-              Eliminate paper forms and airline delay excuses. FlightDelayVault locks compensation funds into GenLayer Intelligent Contracts. Independent AI Validators scrape FlightAware and Flightradar24, automatically releasing €250–€600 compensation to passengers for delays ≥ 3 hours.
-            </p>
-
-            <div className="hero-cta-group">
-              <button onClick={() => { setActiveTab('DASHBOARD'); fetchClaimsState(); }} className="btn-primary" style={{ width: 'auto', padding: '16px 36px', fontSize: '16px' }}>
-                View Dashboard
-              </button>
-              <button onClick={() => setActiveTab('FUND')} className="btn-secondary">
-                Fund Compensation Vault
-              </button>
+            <div className="hero-stat-divider" />
+            <div className="hero-stat-item">
+              <div className="hero-stat-num" style={{ color: 'var(--emerald-success)' }}>{formatGen(totalDisbursedWei.toString())} GEN</div>
+              <div className="hero-stat-lbl">Total EU261 Disbursed</div>
             </div>
-
-            <div className="hero-stats">
-              <div className="hero-stat-item">
-                <div className="hero-stat-num">{totalClaimsCount}</div>
-                <div className="hero-stat-lbl">Registered Vault Claims</div>
-              </div>
-              <div className="hero-stat-divider" />
-              <div className="hero-stat-item">
-                <div className="hero-stat-num" style={{ color: 'var(--emerald-ok)' }}>{formatGen(totalDisbursedWei.toString())} GEN</div>
-                <div className="hero-stat-lbl">Total EU261 Disbursed</div>
-              </div>
-              <div className="hero-stat-divider" />
-              <div className="hero-stat-item">
-                <div className="hero-stat-num" style={{ color: 'var(--cyan-primary)' }}>{compensatedCount}</div>
-                <div className="hero-stat-lbl">Compensated Passengers</div>
-              </div>
-              <div className="hero-stat-divider" />
-              <div className="hero-stat-item">
-                <div className="hero-stat-num" style={{ color: 'var(--amber-delay)' }}>{activeVaultsCount}</div>
-                <div className="hero-stat-lbl">Active Pending Vaults</div>
-              </div>
+            <div className="hero-stat-divider" />
+            <div className="hero-stat-item">
+              <div className="hero-stat-num" style={{ color: 'var(--sky-primary)' }}>{compensatedCount}</div>
+              <div className="hero-stat-lbl">Compensated Passengers</div>
+            </div>
+            <div className="hero-stat-divider" />
+            <div className="hero-stat-item">
+              <div className="hero-stat-num" style={{ color: 'var(--amber-warning)' }}>{activeVaultsCount}</div>
+              <div className="hero-stat-lbl">Active Pending Vaults</div>
             </div>
           </div>
 
           <div className="features-grid">
             <div className="feature-card">
-              <div className="feature-icon" style={{ background: 'var(--cyan-glow)', color: 'var(--cyan-primary)' }}>🛡️</div>
-              <h3 className="feature-title">Authoritative Tracking Sources</h3>
-              <p className="feature-text">
-                Evidence URLs must originate from independent tracking providers (<span className="code-tag">flightaware.com</span>, <span className="code-tag">flightradar24.com</span>). Airline self-reported status pages are rejected.
+              <div className="feature-icon"><ShieldCheck size={28} /></div>
+              <h3>Authoritative Tracking Sources</h3>
+              <p style={{ color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                Evidence URLs must originate from independent tracking providers (flightaware.com, flightradar24.com). Airline self-reported status pages are rejected.
               </p>
             </div>
 
             <div className="feature-card">
-              <div className="feature-icon" style={{ background: 'var(--emerald-glow)', color: 'var(--emerald-ok)' }}>🧮</div>
-              <h3 className="feature-title">Contract-Level EU261 Math</h3>
-              <p className="feature-text">
+              <div className="feature-icon" style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-success)' }}><Calculator size={28} /></div>
+              <h3>Contract-Level EU261 Math</h3>
+              <p style={{ color: 'var(--text-muted)', lineHeight: '1.6' }}>
                 Compensation tiers (€250 / €400 / €600) are computed strictly by contract Python code based on flight distance. AI output is never trusted for financial amounts.
               </p>
             </div>
 
             <div className="feature-card">
-              <div className="feature-icon" style={{ background: 'var(--amber-glow)', color: 'var(--amber-delay)' }}>⏱️</div>
-              <h3 className="feature-title">Deadline Expiry Recovery</h3>
-              <p className="feature-text">
+              <div className="feature-icon" style={{ background: 'rgba(245, 158, 11, 0.1)', color: 'var(--amber-warning)' }}><Clock size={28} /></div>
+              <h3>Deadline Expiry Recovery</h3>
+              <p style={{ color: 'var(--text-muted)', lineHeight: '1.6' }}>
                 If passengers do not file a claim before the deadline, insurers can reclaim locked funds via AI-verified time consensus, preventing funds from being trapped indefinitely.
               </p>
             </div>
@@ -300,50 +303,59 @@ export default function App() {
       {/* DASHBOARD TAB */}
       {activeTab === 'DASHBOARD' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <div className="panel-header">
             <div>
-              <h2 style={{ fontFamily: 'var(--font-cockpit)', fontSize: '24px', color: '#FFF' }}>Protocol Dashboard</h2>
-              <p style={{ fontSize: '13px', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)' }}>Real-time state fetched directly from GenLayer StudioNet contract</p>
+              <h2 className="panel-title"><BarChart3 size={24} /> Protocol Dashboard</h2>
+              <p style={{ color: 'var(--text-muted)' }}>Real-time state fetched directly from GenLayer StudioNet contract</p>
             </div>
-            <button onClick={() => fetchClaimsState()} className="btn-secondary" style={{ padding: '8px 16px', fontSize: '12px' }}>
-              🔄 Refresh State
+            <button onClick={() => fetchClaimsState()} className="btn-secondary" style={{ padding: '8px 16px', fontSize: '14px' }}>
+              <RefreshCw size={16} /> Refresh State
             </button>
           </div>
 
           <div className="dashboard-grid">
             <div className="stat-card">
-              <div className="stat-header">TOTAL REGISTERED CLAIMS</div>
+              <Layers className="stat-icon" size={24} />
+              <div className="stat-label">TOTAL REGISTERED CLAIMS</div>
               <div className="stat-value">{totalClaimsCount}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-header">COMPENSATED CLAIMS</div>
-              <div className="stat-value" style={{ color: 'var(--emerald-ok)' }}>{compensatedCount}</div>
+              <CheckCircle2 className="stat-icon" size={24} />
+              <div className="stat-label">COMPENSATED CLAIMS</div>
+              <div className="stat-value" style={{ color: 'var(--emerald-success)' }}>{compensatedCount}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-header">GEN DISBURSED</div>
-              <div className="stat-value" style={{ color: 'var(--cyan-primary)' }}>{formatGen(totalDisbursedWei.toString())} GEN</div>
+              <Wallet className="stat-icon" size={24} />
+              <div className="stat-label">GEN DISBURSED</div>
+              <div className="stat-value" style={{ color: 'var(--sky-primary)' }}>{formatGen(totalDisbursedWei.toString())}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-header">ACTIVE PENDING VAULTS</div>
-              <div className="stat-value" style={{ color: 'var(--amber-delay)' }}>{activeVaultsCount}</div>
+              <Clock className="stat-icon" size={24} />
+              <div className="stat-label">ACTIVE PENDING VAULTS</div>
+              <div className="stat-value" style={{ color: 'var(--amber-warning)' }}>{activeVaultsCount}</div>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
+          <div className="registry-layout">
             <div className="glass-panel">
-              <div className="panel-title">📡 On-Chain Claim Records ({claims.length})</div>
-              <div className="panel-desc">Live claims stored in GenLayer contract storage</div>
+              <h3 className="panel-title"><FileText size={20} /> On-Chain Claim Records ({claims.length})</h3>
+              <p className="panel-desc">Live claims stored in GenLayer contract storage</p>
 
               {claims.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)' }}>
-                  No claims found in contract storage yet. Click "Fund Claim" tab to register the first claim!
+                <div className="empty-state-card">
+                  <div className="icon-box"><FileText size={32} /></div>
+                  <h3>No Claims Found</h3>
+                  <p>No claims found in contract storage yet. Register the first claim to get started!</p>
+                  <button onClick={() => setActiveTab('FUND')} className="btn-primary">
+                    <PlusCircle size={18} /> Lock Your First Vault
+                  </button>
                 </div>
               ) : (
-                <div className="dossier-list">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {claims.map((claim) => (
                     <div
                       key={claim.id}
-                      className={`dossier-item ${selectedClaimId === claim.id ? 'selected' : ''}`}
+                      className={`claim-card ${selectedClaimId === claim.id ? 'selected' : ''}`}
                       onClick={() => {
                         setSelectedClaimId(claim.id);
                         setActiveTab('REGISTRY');
@@ -351,16 +363,16 @@ export default function App() {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <span style={{ fontFamily: 'var(--font-cockpit)', fontSize: '18px', fontWeight: 700, color: '#FFF' }}>
+                          <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-heading)', marginBottom: '4px' }}>
                             {claim.flight_number}
-                          </span>
-                          <span style={{ marginLeft: '12px', fontFamily: 'var(--font-radar)', fontSize: '12px', color: 'var(--text-radar)' }}>
+                          </div>
+                          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                             {claim.departure_date} · {claim.flight_distance_km} km
-                          </span>
+                          </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           {renderBadge(claim.status)}
-                          <span style={{ fontFamily: 'var(--font-cockpit)', fontWeight: 700, color: 'var(--cyan-primary)' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--sky-primary)' }}>
                             {formatGen(claim.compensation_amount || '0')} GEN
                           </span>
                         </div>
@@ -372,44 +384,44 @@ export default function App() {
             </div>
 
             <div className="glass-panel">
-              <div className="panel-title">📊 EU261 Tier Distribution</div>
-              <div className="panel-desc">Breakdown by flight distance tier</div>
+              <h3 className="panel-title"><Plane size={20} /> EU261 Tier Distribution</h3>
+              <p className="panel-desc">Breakdown by flight distance tier</p>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-radar)', marginBottom: '6px' }}>
-                    <span style={{ color: 'var(--amber-delay)' }}>Tier 1 (≤1500km — €250)</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px' }}>
+                    <span style={{ color: 'var(--amber-warning)' }}>Tier 1 (≤1500km — €250)</span>
                     <span style={{ color: '#FFF' }}>{tier1Count} ({tier1Pct}%)</span>
                   </div>
                   <div className="progress-bar-track">
-                    <div className="progress-bar-fill" style={{ width: `${tier1Pct}%`, background: 'var(--amber-delay)' }} />
+                    <div className="progress-bar-fill" style={{ width: `${tier1Pct}%`, background: 'var(--amber-warning)' }} />
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-radar)', marginBottom: '6px' }}>
-                    <span style={{ color: 'var(--cyan-primary)' }}>Tier 2 (1500–3500km — €400)</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px' }}>
+                    <span style={{ color: 'var(--sky-primary)' }}>Tier 2 (1500–3500km — €400)</span>
                     <span style={{ color: '#FFF' }}>{tier2Count} ({tier2Pct}%)</span>
                   </div>
                   <div className="progress-bar-track">
-                    <div className="progress-bar-fill" style={{ width: `${tier2Pct}%`, background: 'var(--cyan-primary)' }} />
+                    <div className="progress-bar-fill" style={{ width: `${tier2Pct}%`, background: 'var(--sky-primary)' }} />
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-radar)', marginBottom: '6px' }}>
-                    <span style={{ color: 'var(--emerald-ok)' }}>Tier 3 (&gt;3500km — €600)</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px' }}>
+                    <span style={{ color: 'var(--emerald-success)' }}>Tier 3 (&gt;3500km — €600)</span>
                     <span style={{ color: '#FFF' }}>{tier3Count} ({tier3Pct}%)</span>
                   </div>
                   <div className="progress-bar-track">
-                    <div className="progress-bar-fill" style={{ width: `${tier3Pct}%`, background: 'var(--emerald-ok)' }} />
+                    <div className="progress-bar-fill" style={{ width: `${tier3Pct}%`, background: 'var(--emerald-success)' }} />
                   </div>
                 </div>
               </div>
 
-              <div style={{ marginTop: '30px', padding: '16px', background: '#071124', borderRadius: '12px', border: '1px solid var(--border-sky)', fontSize: '11px', fontFamily: 'var(--font-radar)', color: 'var(--text-radar)' }}>
-                <div><strong>Contract Address:</strong></div>
-                <div style={{ color: 'var(--cyan-primary)', wordBreak: 'break-all', marginTop: '4px' }}>{contractAddress}</div>
+              <div style={{ marginTop: '40px', padding: '20px', background: 'rgba(0,0,0,0.2)', borderRadius: '16px', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>CONTRACT ADDRESS:</div>
+                <div className="mono" style={{ color: 'var(--sky-primary)', wordBreak: 'break-all', fontSize: '14px' }}>{contractAddress}</div>
               </div>
             </div>
           </div>
@@ -420,7 +432,7 @@ export default function App() {
       {activeTab === 'FUND' && (
         <div style={{ maxWidth: '720px', margin: '0 auto' }}>
           <div className="glass-panel">
-            <h2 className="panel-title">🔒 Lock Compensation Vault</h2>
+            <h2 className="panel-title"><ShieldCheck size={24} /> Lock Compensation Vault</h2>
             <p className="panel-desc">
               Airlines / insurers lock EU261 compensation funds per passenger. Flight identity fields (flight number, date, distance) become immutable upon creation.
             </p>
@@ -430,7 +442,7 @@ export default function App() {
                 <label className="form-label">Passenger Wallet Address</label>
                 <input
                   type="text"
-                  className="form-input"
+                  className="form-input mono"
                   placeholder="0x1111111111111111111111111111111111111111"
                   value={passenger}
                   onChange={e => setPassenger(e.target.value)}
@@ -438,7 +450,7 @@ export default function App() {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                 <div className="form-group">
                   <label className="form-label">Flight Number</label>
                   <input
@@ -452,7 +464,7 @@ export default function App() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Departure Date (YYYY-MM-DD)</label>
+                  <label className="form-label">Departure Date</label>
                   <input
                     type="date"
                     className="form-input"
@@ -464,10 +476,10 @@ export default function App() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   Flight Distance (km)
                   {currentTier && (
-                    <span style={{ marginLeft: '12px', padding: '2px 10px', borderRadius: '12px', background: currentTier.bg, color: currentTier.color, fontSize: '11px' }}>
+                    <span className="eu261-tier-badge">
                       EU261 Tier: €{currentTier.amount} ({currentTier.label})
                     </span>
                   )}
@@ -475,18 +487,18 @@ export default function App() {
                 <input
                   type="number"
                   className="form-input"
-                  placeholder="e.g. 1150 for HAN→SGN"
+                  placeholder="e.g. 1150"
                   value={distanceKm}
                   onChange={e => setDistanceKm(e.target.value)}
                   required
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                 <div className="form-group">
                   <label className="form-label">GEN Deposit Amount (1 GEN = 1 €)</label>
                   <input
-                    type="text"
+                    type="number"
                     className="form-input"
                     placeholder="e.g. 250"
                     value={depositGEN}
@@ -506,8 +518,8 @@ export default function App() {
                 </div>
               </div>
 
-              <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: '12px' }}>
-                🔒 Lock Compensation Vault On-Chain
+              <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: '12px' }} disabled={loading}>
+                <PlusCircle size={20} /> Lock Compensation Vault On-Chain
               </button>
             </form>
           </div>
@@ -516,37 +528,41 @@ export default function App() {
 
       {/* REGISTRY TAB */}
       {activeTab === 'REGISTRY' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: '24px' }}>
+        <div className="registry-layout">
           {/* Left Sidebar List */}
-          <div className="glass-panel" style={{ padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div style={{ fontFamily: 'var(--font-cockpit)', fontWeight: 700, fontSize: '16px', color: '#FFF' }}>
+          <div className="glass-panel" style={{ padding: '24px' }}>
+            <div className="panel-header" style={{ marginBottom: '20px' }}>
+              <div style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-heading)' }}>
                 Claim Registry ({claims.length})
               </div>
-              <button onClick={() => fetchClaimsState()} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-primary)', cursor: 'pointer', fontSize: '14px' }}>🔄</button>
+              <button onClick={() => fetchClaimsState()} className="btn-secondary" style={{ padding: '6px', borderRadius: '8px' }}>
+                <RefreshCw size={16} />
+              </button>
             </div>
 
             {claims.length === 0 ? (
-              <div style={{ color: 'var(--text-radar)', fontSize: '13px', fontFamily: 'var(--font-radar)', padding: '20px 0', textAlign: 'center' }}>
-                No claims loaded from contract. Click 🔄 to refresh.
+              <div className="empty-state-card" style={{ padding: '40px 20px' }}>
+                <FileText size={32} color="var(--sky-primary)" style={{ margin: '0 auto 12px' }} />
+                <p style={{ margin: 0 }}>No claims loaded. Refresh or lock a vault.</p>
               </div>
             ) : (
-              <div className="dossier-list">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {claims.map((claim) => (
                   <div
                     key={claim.id}
-                    className={`dossier-item ${Number(selectedClaimId) === Number(claim.id) ? 'selected' : ''}`}
+                    className={`claim-card ${Number(selectedClaimId) === Number(claim.id) ? 'selected' : ''}`}
                     onClick={() => setSelectedClaimId(claim.id)}
+                    style={{ marginBottom: 0, padding: '16px' }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <span style={{ fontFamily: 'var(--font-cockpit)', fontSize: '16px', fontWeight: 700, color: '#FFF' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-heading)' }}>
                         {claim.flight_number}
                       </span>
                       {renderBadge(claim.status)}
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontFamily: 'var(--font-radar)', color: 'var(--text-radar)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)' }}>
                       <span>{claim.departure_date}</span>
-                      <span style={{ color: 'var(--cyan-primary)' }}>{formatGen(claim.compensation_amount || '0')} GEN</span>
+                      <span style={{ color: 'var(--sky-primary)', fontWeight: 600 }}>{formatGen(claim.compensation_amount || '0')} GEN</span>
                     </div>
                   </div>
                 ))}
@@ -558,51 +574,51 @@ export default function App() {
           <div className="glass-panel">
             {selectedClaim ? (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
                   <div>
-                    <h2 style={{ fontFamily: 'var(--font-cockpit)', fontSize: '28px', color: '#FFF' }}>{selectedClaim.flight_number}</h2>
-                    <p style={{ fontFamily: 'var(--font-radar)', fontSize: '13px', color: 'var(--text-radar)', marginTop: '4px' }}>
-                      Departure Date: {selectedClaim.departure_date} · Passenger: {selectedClaim.passenger}
+                    <h2 style={{ fontSize: '32px', fontWeight: 800, color: 'var(--text-heading)', marginBottom: '8px' }}>{selectedClaim.flight_number}</h2>
+                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Clock size={16} /> {selectedClaim.departure_date} <span style={{ margin: '0 8px' }}>·</span> <Wallet size={16} /> <span className="mono">{selectedClaim.passenger}</span>
                     </p>
                   </div>
                   <div>{renderBadge(selectedClaim.status)}</div>
                 </div>
 
-                <div className="stat-grid">
-                  <div className="stat-card">
-                    <div className="stat-header">DELAY HOURS</div>
+                <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '24px' }}>
+                  <div className="stat-card" style={{ padding: '20px' }}>
+                    <div className="stat-label">DELAY HOURS</div>
                     <div className="stat-value">{selectedClaim.delay_hours || 0}h</div>
                   </div>
-                  <div className="stat-card">
-                    <div className="stat-header">FLIGHT DISTANCE</div>
+                  <div className="stat-card" style={{ padding: '20px' }}>
+                    <div className="stat-label">FLIGHT DISTANCE</div>
                     <div className="stat-value">{selectedClaim.flight_distance_km} km</div>
                   </div>
-                  <div className="stat-card">
-                    <div className="stat-header">EU261 PAYOUT</div>
-                    <div className="stat-value" style={{ color: 'var(--cyan-primary)' }}>{formatGen(selectedClaim.compensation_amount || '0')} GEN</div>
+                  <div className="stat-card" style={{ padding: '20px' }}>
+                    <div className="stat-label">EU261 PAYOUT</div>
+                    <div className="stat-value" style={{ color: 'var(--sky-primary)' }}>{formatGen(selectedClaim.compensation_amount || '0')} GEN</div>
                   </div>
-                  <div className="stat-card">
-                    <div className="stat-header">VAULT BALANCE</div>
+                  <div className="stat-card" style={{ padding: '20px' }}>
+                    <div className="stat-label">VAULT BALANCE</div>
                     <div className="stat-value">{formatGen(selectedClaim.fund || '0')} GEN</div>
                   </div>
                 </div>
 
                 <div className={`decree-box ${selectedClaim.status === 'COMPENSATED' ? 'verified' : selectedClaim.status === 'REJECTED' ? 'slashed' : ''}`}>
-                  <div style={{ fontFamily: 'var(--font-cockpit)', fontSize: '14px', fontWeight: 700, color: '#FFF', marginBottom: '8px' }}>
-                    🤖 GenLayer AI Auditor Reasoning
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-heading)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Sparkles size={18} color="var(--sky-primary)" /> GenLayer AI Auditor Reasoning
                   </div>
-                  <p style={{ fontFamily: 'var(--font-radar)', fontSize: '13px', color: 'var(--text-radar)', lineHeight: '20px' }}>
+                  <p style={{ fontSize: '14px', color: 'var(--text-body)', lineHeight: '1.6' }}>
                     {selectedClaim.reasoning || 'Awaiting delay claim submission and AI consensus verification.'}
                   </p>
                 </div>
 
                 {/* File Delay Claim Form (if FUNDED or FAILED) */}
                 {(selectedClaim.status === 'FUNDED' || selectedClaim.status === 'FAILED') && (
-                  <div style={{ marginTop: '30px', padding: '20px', background: '#071124', borderRadius: '16px', border: '1px solid var(--border-sky)' }}>
-                    <h3 style={{ fontFamily: 'var(--font-cockpit)', fontSize: '16px', color: '#FFF', marginBottom: '8px' }}>
-                      📡 File Flight Delay Claim
+                  <div style={{ marginTop: '32px', padding: '24px', background: 'rgba(0,0,0,0.2)', borderRadius: '16px', border: '1px solid var(--border-accent)' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-heading)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <ExternalLink size={20} /> File Flight Delay Claim
                     </h3>
-                    <p style={{ fontSize: '12px', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)', marginBottom: '16px' }}>
+                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '20px' }}>
                       Submit official flight tracking URL (FlightAware or Flightradar24) to trigger GenLayer AI consensus.
                     </p>
 
@@ -617,8 +633,8 @@ export default function App() {
                           required
                         />
                       </div>
-                      <button type="submit" className="btn-primary" disabled={loading}>
-                        📡 Submit Delay Evidence & Trigger AI Consensus
+                      <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={loading}>
+                        <Send size={18} /> Submit Delay Evidence & Trigger AI Consensus
                       </button>
                     </form>
                   </div>
@@ -626,20 +642,20 @@ export default function App() {
 
                 {/* Expire & Release Section (for Insurers) */}
                 {selectedClaim.status === 'FUNDED' && (
-                  <div style={{ marginTop: '20px', padding: '16px', background: '#071124', borderRadius: '12px', border: '1px solid var(--border-amber)' }}>
-                    <div style={{ fontSize: '12px', fontFamily: 'var(--font-radar)', color: 'var(--amber-delay)', marginBottom: '8px' }}>
-                      ⏱️ Insurer Recovery: Claim deadline = {selectedClaim.deadline ? new Date(selectedClaim.deadline * 1000).toLocaleString() : 'N/A'}
+                  <div style={{ marginTop: '24px', padding: '20px', background: 'rgba(245, 158, 11, 0.05)', borderRadius: '16px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--amber-warning)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <AlertCircle size={18} /> Insurer Recovery: Claim deadline = {selectedClaim.deadline ? new Date(selectedClaim.deadline * 1000).toLocaleString() : 'N/A'}
                     </div>
-                    <form onSubmit={handleExpireSubmit} style={{ display: 'flex', gap: '12px' }}>
+                    <form onSubmit={handleExpireSubmit} style={{ display: 'flex', gap: '16px' }}>
                       <input
                         type="url"
                         className="form-input"
-                        style={{ fontSize: '12px', padding: '8px 12px' }}
+                        style={{ flex: 1 }}
                         value={timeUrl}
                         onChange={e => setTimeUrl(e.target.value)}
                         placeholder="Authoritative Time Source URL"
                       />
-                      <button type="submit" className="btn-secondary" style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '12px' }} disabled={loading}>
+                      <button type="submit" className="btn-secondary" style={{ whiteSpace: 'nowrap' }} disabled={loading}>
                         Expire & Recover Funds
                       </button>
                     </form>
@@ -647,8 +663,10 @@ export default function App() {
                 )}
               </div>
             ) : (
-              <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-radar)', fontFamily: 'var(--font-radar)' }}>
-                Select a claim from the left registry sidebar to inspect details or file evidence.
+              <div className="empty-state-card" style={{ padding: '80px 24px' }}>
+                <div className="icon-box"><ChevronRight size={32} /></div>
+                <h3>Select a Claim</h3>
+                <p>Select a claim from the left registry sidebar to inspect details or file evidence.</p>
               </div>
             )}
           </div>
