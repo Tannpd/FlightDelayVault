@@ -17,23 +17,20 @@ ZERO_ADDRESS = Address("0x0000000000000000000000000000000000000000")
 # ---------------------------------------------------------------------------
 # Authoritative Flight Tracking Sources (Third-party, NOT airline-controlled)
 # ---------------------------------------------------------------------------
+# Only accepted from authenticated canonical third-party flight tracking databases.
+# Project-hosted, self-reported, or mock URLs are strictly excluded.
 AUTHORIZED_TRACKING_DOMAINS = [
     "https://flightaware.com/",
     "https://www.flightaware.com/",
     "https://flightradar24.com/",
     "https://www.flightradar24.com/",
-    "https://flightdelayguard-app.vercel.app/",
-    "https://raw.githubusercontent.com/",
-    "http://localhost:5173/",
 ]
 
-# Authoritative time sources for deadline-based settlement
+# Only accepted from authenticated canonical time authority APIs.
+# Project-hosted Vercel URLs, GitHub raw, and localhost are strictly excluded.
 AUTHORIZED_TIME_DOMAINS = [
     "https://worldtimeapi.org/",
     "https://timeapi.io/",
-    "https://flightdelayguard-app.vercel.app/",
-    "https://raw.githubusercontent.com/",
-    "http://localhost:5173/",
 ]
 
 # ---------------------------------------------------------------------------
@@ -265,6 +262,12 @@ class Contract(gl.Contract):
 FLIGHT IDENTITY (IMMUTABLE — BOUND AT REGISTRATION. DO NOT SUBSTITUTE):
 - Flight Number:    {flight_number}
 - Departure Date:   {departure_date}
+- Registered Distance: {distance_km} km
+
+STEP 1 — VERIFY LEGALLY MATERIAL FLIGHT FACTS (do this before checking delay):
+A. FLIGHT EXISTS: Confirm that flight {flight_number} on {departure_date} is explicitly present in the tracking data. If NOT found, set flight_verified = false and is_delayed = false immediately.
+B. ROUTE DISTANCE CONSISTENCY: Based on the origin and destination airports found in the tracking data, estimate the great-circle distance. Verify it is plausibly consistent with the registered distance of {distance_km} km (allow ±30% margin). If grossly inconsistent, set is_delayed = false.
+C. PASSENGER FACTS: Note any passenger or booking reference data visible in the tracking source if present.
 
 FRESHNESS RULE (CRITICAL — ENFORCE STRICTLY):
 - You MUST ONLY analyze delay data for flight {flight_number} on departure date {departure_date}.
@@ -272,26 +275,27 @@ FRESHNESS RULE (CRITICAL — ENFORCE STRICTLY):
 - If the tracking page does not clearly reference {flight_number} departing on {departure_date}, you MUST set is_delayed = false.
 - Do NOT infer or extrapolate. Only use explicitly stated times from the tracking data.
 
-FLIGHT TRACKING DATA (from authoritative third-party source):
+FLIGHT TRACKING DATA (from authenticated canonical source — flightaware.com or flightradar24.com):
 \"\"\"
 {tracking_text[:2500]}
 \"\"\"
 
-EU261 / US DOT AUDIT INSTRUCTIONS:
+STEP 2 — DELAY AUDIT INSTRUCTIONS (only if flight_verified = true):
 1. Find the SCHEDULED departure time and the ACTUAL departure/arrival time for {flight_number} on {departure_date}.
 2. Calculate total delay in whole hours (integer, round DOWN).
 3. A cancelled flight counts as delay_hours = 3 (minimum qualifying).
 4. If total delay >= 3 hours → set is_delayed = true.
-5. If total delay < 3 hours OR departure/date data not found → set is_delayed = false and delay_hours = actual minutes converted.
-6. Provide concise audit reasoning citing the exact scheduled and actual times you found.
+5. If total delay < 3 hours OR departure/date data not found → set is_delayed = false.
+6. Provide concise audit reasoning citing the exact scheduled and actual times found.
 
 WARNING: Do NOT set is_delayed = true unless you found explicit timestamp data for {flight_number} on {departure_date}. When in doubt, fail safely: is_delayed = false.
 
 Respond ONLY with valid raw JSON. No markdown, no code blocks:
 {{
+    "flight_verified": true | false,
     "is_delayed": true | false,
     "delay_hours": <int, 0 if not delayed or < 3h>,
-    "reasoning": "<concise string citing exact timestamps found>"
+    "reasoning": "<concise string citing flight existence check, route distance check, and exact timestamps found>"
 }}"""
 
             try:
@@ -314,15 +318,31 @@ Respond ONLY with valid raw JSON. No markdown, no code blocks:
                 cleaned = "\n".join(inner).strip()
 
             try:
-                parsed     = json.loads(cleaned)
-                is_delayed = parsed.get("is_delayed")
+                parsed          = json.loads(cleaned)
+                flight_verified = parsed.get("flight_verified")
+                is_delayed      = parsed.get("is_delayed")
 
                 # STRICT BOOLEAN VALIDATION — reject string coercion
+                if not isinstance(flight_verified, bool):
+                    return json.dumps({
+                        "error": "FLIGHT_NOT_VERIFIED",
+                        "is_delayed": False, "delay_hours": 0,
+                        "reasoning": "AI could not verify flight existence in canonical tracking data. Failing closed."
+                    })
+
                 if not isinstance(is_delayed, bool):
                     return json.dumps({
                         "error": "INVALID_BOOLEAN_TYPE",
                         "is_delayed": False, "delay_hours": 0,
                         "reasoning": "AI returned non-boolean is_delayed. Failing closed to protect escrow."
+                    })
+
+                # LEGALLY MATERIAL FACT GATE: flight must be verified to exist in canonical data
+                if not flight_verified:
+                    return json.dumps({
+                        "error": "FLIGHT_NOT_FOUND_IN_CANONICAL_DATA",
+                        "is_delayed": False, "delay_hours": 0,
+                        "reasoning": "Flight could not be verified in authenticated canonical tracking data. Payout blocked."
                     })
 
                 delay_hours = int(parsed.get("delay_hours", 0))
@@ -334,6 +354,7 @@ Respond ONLY with valid raw JSON. No markdown, no code blocks:
                     is_delayed = False
 
                 return json.dumps({
+                    "flight_verified": flight_verified,
                     "is_delayed": is_delayed,
                     "delay_hours": delay_hours,
                     "reasoning": reasoning[:500]
@@ -375,35 +396,36 @@ Respond ONLY with valid raw JSON. No markdown, no code blocks:
 
             if len(tracking_text) < 15: return False
 
-            prompt = f"""You are an expert EU261 / US DOT Flight Delay Auditor verifying compensation eligibility for an autonomous escrow contract.
+            prompt = f"""You are an expert EU261 / US DOT Flight Delay Auditor providing independent validation for an autonomous escrow contract.
 
-FLIGHT IDENTITY (IMMUTABLE — BOUND AT REGISTRATION. DO NOT SUBSTITUTE):
+FLIGHT IDENTITY (IMMUTABLE — DO NOT SUBSTITUTE):
 - Flight Number:    {flight_number}
 - Departure Date:   {departure_date}
+- Registered Distance: {distance_km} km
 
-FRESHNESS RULE (CRITICAL — ENFORCE STRICTLY):
-- You MUST ONLY analyze delay data for flight {flight_number} on departure date {departure_date}.
-- Data for ANY other date, ANY other flight number, or historical patterns MUST be ignored entirely.
-- If the tracking page does not clearly reference {flight_number} departing on {departure_date}, you MUST set is_delayed = false.
+STEP 1 — VERIFY LEGALLY MATERIAL FLIGHT FACTS:
+A. FLIGHT EXISTS: Confirm that flight {flight_number} on {departure_date} is explicitly present in the tracking data. If NOT found, set flight_verified = false and is_delayed = false.
+B. ROUTE DISTANCE CONSISTENCY: Verify that the origin-destination distance in the tracking data is plausibly consistent with the registered {distance_km} km (±30% margin). If grossly inconsistent, set is_delayed = false.
 
-FLIGHT TRACKING DATA (from authoritative third-party source):
+FRESHNESS RULE: ONLY analyze flight {flight_number} on {departure_date}. Ignore all other data.
+
+FLIGHT TRACKING DATA (from authenticated canonical source — flightaware.com or flightradar24.com):
 \"\"\"
 {tracking_text[:2500]}
 \"\"\"
 
-EU261 / US DOT AUDIT INSTRUCTIONS:
-1. Find the SCHEDULED departure time and the ACTUAL departure/arrival time for {flight_number} on {departure_date}.
-2. Calculate total delay in whole hours (integer, round DOWN).
-3. A cancelled flight counts as delay_hours = 3.
-4. If total delay >= 3 hours → set is_delayed = true.
-5. If total delay < 3 hours OR no data found → set is_delayed = false.
-6. Provide concise audit reasoning.
+STEP 2 — DELAY AUDIT (only if flight_verified = true):
+1. Find SCHEDULED and ACTUAL departure times.
+2. Calculate delay in whole hours (round DOWN).
+3. Cancelled flight = delay_hours = 3.
+4. Delay >= 3h → is_delayed = true. Otherwise false.
 
 Respond ONLY with valid raw JSON:
 {{
+    "flight_verified": true | false,
     "is_delayed": true | false,
     "delay_hours": <int>,
-    "reasoning": "<string>"
+    "reasoning": "<string citing flight existence check, route consistency, and timestamps>"
 }}"""
 
             try:
@@ -428,6 +450,11 @@ Respond ONLY with valid raw JSON:
 
             if "error" in val_json: return False
 
+            # Validator must also confirm flight existence in canonical data
+            val_verified = val_json.get("flight_verified")
+            if not isinstance(val_verified, bool): return False
+            if not val_verified: return False
+
             val_delayed = val_json.get("is_delayed")
             if not isinstance(val_delayed, bool): return False
 
@@ -435,8 +462,9 @@ Respond ONLY with valid raw JSON:
             if not isinstance(val_hours, int): return False
 
             # SEMANTIC CONTENT EQUIVALENCE CHECK:
-            # 1. Both must agree on whether the flight is delayed (verdict match)
-            # 2. Delay hours must be within ±1 hour tolerance (real-world data variation)
+            # 1. Both must confirm flight_verified = true
+            # 2. Both must agree on whether the flight is delayed (verdict match)
+            # 3. Delay hours must be within ±1 hour tolerance (real-world data variation)
             verdict_match    = (leader_delayed == val_delayed)
             hours_within_tol = abs(leader_hours - val_hours) <= EU261_DELAY_TOLERANCE
 

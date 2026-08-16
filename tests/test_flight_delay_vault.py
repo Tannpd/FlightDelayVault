@@ -46,10 +46,11 @@ class MockNondet:
             if isinstance(res, Exception):
                 raise res
             return res
-        # Default: 4h delay confirmed
+        # Default: 4h delay confirmed, flight verified in canonical source
         return json.dumps({
+            "flight_verified": True,
             "is_delayed": True, "delay_hours": 4,
-            "reasoning": "Flight VN302 on 2026-08-01: scheduled 08:00, actual 12:00. Delay = 4 hours."
+            "reasoning": "Flight VN302 on 2026-08-01: verified in FlightAware. Scheduled 08:00, actual 12:00. Delay = 4 hours."
         })
 
 class MockVM:
@@ -111,8 +112,8 @@ PASSENGER      = "0x1111111111111111111111111111111111111111"
 INSURER        = "0x2222222222222222222222222222222222222222"
 STRANGER       = "0x3333333333333333333333333333333333333333"
 DEPARTURE_DATE = "2026-08-01"
-TRACKING_URL   = "https://flightdelayguard-app.vercel.app/mock_flight.json"
-TIME_URL       = "https://flightdelayguard-app.vercel.app/mock_time.json"
+TRACKING_URL   = 'https://flightaware.com/live/flight/VN302'
+TIME_URL       = 'https://worldtimeapi.org/api/timezone/UTC'
 DEADLINE_TS    = 1785000000  # far future
 
 SHORT_DIST  = 900    # ≤1500km  → €250
@@ -177,8 +178,8 @@ class TestFlightDelayVault(unittest.TestCase):
         """≤1500km flight delay ≥3h → €250 (250 GEN in wei) auto-compensated to passenger."""
         c, _ = _make_contract(dist=SHORT_DIST, stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            json.dumps({"is_delayed": True,  "delay_hours": 4, "reasoning": "4h delay confirmed."}),
-            json.dumps({"is_delayed": True,  "delay_hours": 4, "reasoning": "Validator confirms 4h."}),
+            json.dumps({"flight_verified": True, "is_delayed": True,  "delay_hours": 4, "reasoning": "VN302 found on 2026-08-01. Scheduled 08:00, actual 12:00. 4h delay confirmed."}),
+            json.dumps({"flight_verified": True, "is_delayed": True,  "delay_hours": 4, "reasoning": "Validator confirms VN302 4h delay."}),
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -194,8 +195,8 @@ class TestFlightDelayVault(unittest.TestCase):
         """1500–3500km flight delay ≥3h → €400 (400 GEN in wei) auto-compensated."""
         c, _ = _make_contract(dist=MEDIUM_DIST, stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            json.dumps({"is_delayed": True,  "delay_hours": 5, "reasoning": "5h delay confirmed."}),
-            json.dumps({"is_delayed": True,  "delay_hours": 5, "reasoning": "Validator confirms 5h."}),
+            json.dumps({"flight_verified": True, "is_delayed": True,  "delay_hours": 5, "reasoning": "VN302 found on 2026-08-01. 5h delay confirmed."}),
+            json.dumps({"flight_verified": True, "is_delayed": True,  "delay_hours": 5, "reasoning": "Validator confirms 5h."}),
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -208,8 +209,8 @@ class TestFlightDelayVault(unittest.TestCase):
         """>3500km flight delay ≥3h → €600 (600 GEN in wei) auto-compensated."""
         c, _ = _make_contract(dist=LONG_DIST, stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            json.dumps({"is_delayed": True,  "delay_hours": 6, "reasoning": "6h delay confirmed."}),
-            json.dumps({"is_delayed": True,  "delay_hours": 6, "reasoning": "Validator confirms 6h."}),
+            json.dumps({"flight_verified": True, "is_delayed": True,  "delay_hours": 6, "reasoning": "VN302 found on 2026-08-01. 6h delay confirmed."}),
+            json.dumps({"flight_verified": True, "is_delayed": True,  "delay_hours": 6, "reasoning": "Validator confirms 6h."}),
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -225,8 +226,8 @@ class TestFlightDelayVault(unittest.TestCase):
         """Clean on-time flight → REJECTED, 100% deposit returned to insurer."""
         c, _ = _make_contract(stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            json.dumps({"is_delayed": False, "delay_hours": 0, "reasoning": "Flight on time."}),
-            json.dumps({"is_delayed": False, "delay_hours": 0, "reasoning": "Validator confirms on time."}),
+            json.dumps({"flight_verified": True, "is_delayed": False, "delay_hours": 0, "reasoning": "VN302 found on 2026-08-01. Flight arrived on time."}),
+            json.dumps({"flight_verified": True, "is_delayed": False, "delay_hours": 0, "reasoning": "Validator confirms on time."}),
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -246,10 +247,12 @@ class TestFlightDelayVault(unittest.TestCase):
         then the final settlement path applies the EU261_MIN_DELAY_HOURS override."""
         c, _ = _make_contract(stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            # Both agree: is_delayed=True, delay_hours=2 → passes validator tolerance (same verdict/hours)
-            # But contract-level override in settlement: delay_hours=2 < 3 → is_delayed forced False → REJECTED
-            json.dumps({"is_delayed": True, "delay_hours": 2, "reasoning": "2h delay found."}),
-            json.dumps({"is_delayed": True, "delay_hours": 2, "reasoning": "Validator: also 2h."}),
+            # Both agree: flight_verified=True, is_delayed=True, delay_hours=2
+            # Leader fn applies override: delay_hours=2<3 → is_delayed=False in leader output
+            # Validator sees leader output {is_delayed:False, delay_hours:2} → both match → consensus passes
+            # Settlement: is_delayed=False → REJECTED
+            json.dumps({"flight_verified": True, "is_delayed": True, "delay_hours": 2, "reasoning": "VN302 found. 2h delay found."}),
+            json.dumps({"flight_verified": True, "is_delayed": True, "delay_hours": 2, "reasoning": "Validator: also 2h."}),
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -291,8 +294,8 @@ class TestFlightDelayVault(unittest.TestCase):
         """Leader says 4h, Validator says 8h (>1h tolerance) → consensus rejected → FAILED."""
         c, _ = _make_contract(stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            json.dumps({"is_delayed": True, "delay_hours": 4, "reasoning": "Leader: 4h delay."}),
-            json.dumps({"is_delayed": True, "delay_hours": 8, "reasoning": "Validator: 8h delay."}),
+            json.dumps({"flight_verified": True, "is_delayed": True, "delay_hours": 4, "reasoning": "Leader: 4h delay."}),
+            json.dumps({"flight_verified": True, "is_delayed": True, "delay_hours": 8, "reasoning": "Validator: 8h delay."}),
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -335,7 +338,7 @@ class TestFlightDelayVault(unittest.TestCase):
         """AI returning string 'true' instead of boolean true → FAILED (fail-closed)."""
         c, _ = _make_contract(stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            json.dumps({"is_delayed": "true", "delay_hours": 5, "reasoning": "String exploit attempt."})
+            json.dumps({"flight_verified": True, "is_delayed": "true", "delay_hours": 5, "reasoning": "String exploit attempt."})
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -433,8 +436,8 @@ class TestFlightDelayVault(unittest.TestCase):
         """Leader says delayed=True, Validator says delayed=False → FAILED (fail-closed)."""
         c, _ = _make_contract(stake=STAKE)
         mock_gl.nondet.exec_prompt_responses = [
-            json.dumps({"is_delayed": True,  "delay_hours": 4, "reasoning": "Leader: delayed."}),
-            json.dumps({"is_delayed": False, "delay_hours": 0, "reasoning": "Validator: on time."}),
+            json.dumps({"flight_verified": True, "is_delayed": True,  "delay_hours": 4, "reasoning": "Leader: delayed."}),
+            json.dumps({"flight_verified": True, "is_delayed": False, "delay_hours": 0, "reasoning": "Validator: on time."}),
         ]
         mock_gl.message = MockMessage(sender=PASSENGER)
         c.file_delay_claim(0, TRACKING_URL)
@@ -514,8 +517,28 @@ class TestFlightDelayVault(unittest.TestCase):
             self.contract.fund_compensation_claim(PASSENGER, "VN302", DEPARTURE_DATE, 30000, DEADLINE_TS)
         self.assertIn("between 1 and 20000", str(ctx.exception))
 
+    # ------------------------------------------------------------------
+    # 28. flight_verified=False → payout blocked, FAILED status (canonical data gate)
+    # ------------------------------------------------------------------
+    def test_flight_not_found_in_canonical_data_blocks_payout(self):
+        """If AI cannot verify flight existence in canonical source, payout is blocked.
+        This is the legally material fact gate: flight must exist in FlightAware/Flightradar24
+        data before any compensation can be released."""
+        c, _ = _make_contract(dist=SHORT_DIST, stake=STAKE)
+        mock_gl.nondet.exec_prompt_responses = [
+            # flight_verified=False: flight VN302 not found in canonical tracking data on that date
+            json.dumps({"flight_verified": False, "is_delayed": False, "delay_hours": 0,
+                        "reasoning": "Flight VN302 not found in FlightAware tracking data for 2026-08-01."}),
+        ]
+        mock_gl.message = MockMessage(sender=PASSENGER)
+        c.file_delay_claim(0, TRACKING_URL)
+
+        claim = json.loads(c.get_claim(0))
+        self.assertEqual(claim["status"], "FAILED")
+        self.assertEqual(claim["compensation_amount"], 0)
+        # Funds MUST be preserved (not paid out to anyone) when flight cannot be verified
+        self.assertEqual(claim["fund"], STAKE)
+
 
 if __name__ == '__main__':
     unittest.main()
-
-

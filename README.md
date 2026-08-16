@@ -1,7 +1,7 @@
 # FlightDelayVault // Autonomous EU261 Flight Delay Compensation Escrow
 
 [![GenLayer v0.2.16](https://img.shields.io/badge/GenLayer-v0.2.16-00F0FF?style=for-the-badge&logo=python)](https://genlayer.com)
-[![Tests](https://img.shields.io/badge/Tests-27%2F27%20PASSING-10B981?style=for-the-badge)](https://github.com/Tannpd/FlightDelayVault)
+[![Tests](https://img.shields.io/badge/Tests-28%2F28%20PASSING-10B981?style=for-the-badge)](https://github.com/Tannpd/FlightDelayVault)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F43F5E?style=for-the-badge)](LICENSE)
 
 ---
