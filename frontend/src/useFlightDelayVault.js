@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { createClient, createAccount } from 'genlayer-js';
 import { studionet } from 'genlayer-js/chains';
 
-const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || '0x4c478A2137DB044508196eD7DEfa4B574a0145f1';
+const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || '0xB148189a2F97c8E2ee2C4c8A1fcf150AF2Cf873f';
 const RPC_ENDPOINT = import.meta.env.VITE_GENLAYER_RPC_URL || 'https://studio.genlayer.com/api';
 
 const customStudionet = {
